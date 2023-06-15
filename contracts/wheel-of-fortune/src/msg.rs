@@ -1,5 +1,5 @@
 use cosmwasm_schema::{cw_serde, QueryResponses};
-use cosmwasm_std::{Timestamp, Uint128};
+use cosmwasm_std::Timestamp;
 use crate::state::{WheelReward, UserFee, Config};
 use nois::NoisCallback;
 

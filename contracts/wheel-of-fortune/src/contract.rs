@@ -330,7 +330,7 @@ pub fn activate_wheel(
 
     if let Some(start_time) = start_time {
         if start_time >= end_time {
-            return Err(ContractError::InvalidTimeSetting{})
+            return Err(ContractError::InvalidTimeSetting {})
         }
     }
 
@@ -406,7 +406,6 @@ pub fn spin(
     }
 
     WHITELIST.save(deps.storage, info.sender.clone(), &(spinned + spins))?;
-
 
     if config.is_advanced_randomness {
 
@@ -484,8 +483,14 @@ pub fn claim_reward(
     // update player reward
     SPINS_RESULT.save(deps.storage, info.sender.clone(), &spins_result)?;
 
-    Ok(Response::new().add_attribute("action", "claim_reward")
-        .add_attribute("sender", info.sender))
+    if msgs.len() > 0 {
+        Ok(Response::new().add_attribute("action", "claim_reward")
+            .add_attribute("sender", info.sender)
+            .add_messages(msgs))
+    }else {
+        Ok(Response::new().add_attribute("action", "claim_reward")
+            .add_attribute("sender", info.sender))
+    }
 }
 
 pub fn withdraw(
