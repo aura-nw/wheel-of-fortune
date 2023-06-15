@@ -1,5 +1,5 @@
 use cosmwasm_schema::{cw_serde, QueryResponses};
-use cosmwasm_std::Timestamp;
+use cosmwasm_std::{Timestamp, Uint128};
 use crate::state::{WheelReward, UserFee, Config};
 use nois::NoisCallback;
 
@@ -54,6 +54,11 @@ pub enum ExecuteMsg {
         recipient: Option<String>,
         collection: String,
         token_ids: Vec<String>
+    },
+
+    WithdrawToken {
+        recipient: Option<String>,
+        token_address: String
     },
 
     // user methods

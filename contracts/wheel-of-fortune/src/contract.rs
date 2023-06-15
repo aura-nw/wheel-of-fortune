@@ -8,10 +8,12 @@ use cw2::set_contract_version;
 
 use cw721_base::{ExecuteMsg as CW721ExecuteMsg, Extension as CW721Extension};
 
+use cw20::{Cw20ExecuteMsg, BalanceResponse as Cw20BalanceResponse, Cw20QueryMsg};
+
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
 use crate::state::{
-    Config, CONFIG, AdminConfig, ADMIN_CONFIG, RANDOM_SEED, WHITELIST, CollectionReward, 
+    Config, CONFIG, AdminConfig, ADMIN_CONFIG, RANDOM_SEED, WHITELIST, CollectionReward, CoinReward,
     WheelReward, WHEEL_REWARDS, TokenReward, RandomJob, RANDOM_JOBS, TextReward, SPINS_RESULT, UserFee
 };
 
@@ -95,7 +97,8 @@ pub fn execute(
         ExecuteMsg::ActivateWheel { fee, start_time, end_time } => activate_wheel(deps, env, info, fee, start_time, end_time),
         ExecuteMsg::Withdraw { recipient, denom } => withdraw(deps, env, info, recipient, denom),
         ExecuteMsg::WithdrawNft { recipient, collection, token_ids } => withdraw_nft(deps, env, info, recipient, collection, token_ids),
-        
+        ExecuteMsg::WithdrawToken { recipient, token_address } => withdraw_token(deps, env, info, recipient, token_address),
+
         // user methods
         ExecuteMsg::Spin { number } => spin(deps, env, info, number),
         ExecuteMsg::ClaimReward { rewards } => claim_reward(deps, env, info, rewards),
@@ -174,9 +177,10 @@ pub fn add_collection_reward(
     Ok(())
 }
 
-fn add_token_reward(
+pub fn add_token_reward(
     wheel_rewards: &mut Vec<WheelReward>,
-    funds: Vec<Coin>,
+    msgs: &mut Vec<CosmosMsg>,
+    recipient: String,
     token: TokenReward
 ) -> Result<(), ContractError> {
 
@@ -184,13 +188,37 @@ fn add_token_reward(
         return Err(ContractError::TextTooLong {});
     }
 
-    let total_amount = token.coin.amount.checked_mul(Uint128::from(token.number as u128)).unwrap();
+    let total_amount = token.amount.checked_mul(Uint128::from(token.number as u128)).unwrap();
+
+    transfer_token_msgs(
+        msgs, 
+        recipient, 
+        token.token_address.clone(), 
+        total_amount
+    )?;
+
+    wheel_rewards.push(WheelReward::FungibleToken(token));
+
+    Ok(())
+}
+
+fn add_coin_reward(
+    wheel_rewards: &mut Vec<WheelReward>,
+    funds: Vec<Coin>,
+    coin: CoinReward
+) -> Result<(), ContractError> {
+
+    if coin.label.len() > MAX_TEXT_LENGTH {
+        return Err(ContractError::TextTooLong {});
+    }
+
+    let total_amount = coin.coin.amount.checked_mul(Uint128::from(coin.number as u128)).unwrap();
         
-    if has_coin(funds, token.coin.denom.clone(), total_amount) {
+    if has_coin(funds, coin.coin.denom.clone(), total_amount) {
         return Err(ContractError::InsufficentFund {});
     }
 
-    wheel_rewards.push(WheelReward::Token(token));
+    wheel_rewards.push(WheelReward::Coin(coin));
 
     Ok(())
 }
@@ -229,9 +257,13 @@ pub fn add_reward(
             // add collection to wheel rewards list
             add_collection_reward(wheel_rewards.as_mut(), msgs.as_mut(), env.contract.address.to_string(), collection)?;
         }
-        WheelReward::Token(token) => {
+        WheelReward::FungibleToken(token) => {
             // add token to wheel rewards list
-            add_token_reward(wheel_rewards.as_mut(), info.funds, token)?;
+            add_token_reward(wheel_rewards.as_mut(), msgs.as_mut(), env.contract.address.to_string(), token)?;
+        }
+        WheelReward::Coin(coin) => {
+            // add coint to wheel rewards list
+            add_coin_reward(wheel_rewards.as_mut(), info.funds, coin)?;
         }
         WheelReward::Text(text) => {
             // add text to wheel rewards list
@@ -519,12 +551,53 @@ pub fn withdraw_nft(
 
     deps.api.addr_validate(&recipient)?;
     deps.api.addr_validate(&collection_address)?;
-    
-    let mut msgs: Vec<CosmosMsg> = Vec::new();
 
+    let mut msgs: Vec<CosmosMsg> = Vec::new();
     transfer_nft_msgs(msgs.as_mut(), recipient.clone(), collection_address, token_ids)?;
 
     Ok(Response::new().add_attribute("action", "withdraw_nft")
+    .add_attribute("receiver", recipient)
+    .add_messages(msgs))
+}
+
+pub fn withdraw_token(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    recipient: Option<String>,
+    token_address: String
+) -> Result<Response, ContractError> {
+
+    // check if wheel is activated and sender is contract admin
+    is_activate_and_owned(deps.storage, info.sender.clone())?;
+    
+    let config = CONFIG.load(deps.storage)?;
+    if config.end_time.unwrap() > env.block.time {
+        return Err(ContractError::WheelNotEnded {});
+    }
+
+    let recipient = recipient.unwrap_or(info.sender.to_string());
+
+    deps.api.addr_validate(&recipient)?;
+    deps.api.addr_validate(&token_address)?;
+    
+    // get the token balance of contract
+    let contract_balance: Cw20BalanceResponse =
+            deps.querier.query_wasm_smart(
+                token_address.clone(),
+                &Cw20QueryMsg::Balance { 
+                    address: env.contract.address.to_string()
+                }
+            )?;
+    
+    if contract_balance.balance == Uint128::zero() {
+        return Err(ContractError::InsufficentFund {});
+    }
+
+    let mut msgs: Vec<CosmosMsg> = Vec::new();
+    transfer_token_msgs(msgs.as_mut(), recipient.clone(), token_address, contract_balance.balance)?;
+
+    Ok(Response::new().add_attribute("action", "withdraw_token")
     .add_attribute("receiver", recipient)
     .add_messages(msgs))
 }
@@ -646,16 +719,31 @@ fn select_wheel_rewards(
                 spins_result.push((false, reward));
             }
 
-            WheelReward::Token(mut token) => {
-                let reward = WheelReward::Token(TokenReward { 
+            WheelReward::FungibleToken(mut token) => {
+                let reward = WheelReward::FungibleToken(TokenReward { 
                     label: token.label.clone(), 
-                    coin: token.coin.clone(), 
+                    token_address: token.token_address.clone(), 
+                    amount: token.amount, 
                     number: 1 
                 });
 
                 token.number -= 1;
+                
+                wheel_rewards[reward_idx] = WheelReward::FungibleToken(token);
 
-                wheel_rewards[reward_idx] = WheelReward::Token(token);
+                spins_result.push((false, reward));
+            }
+
+            WheelReward::Coin(mut coin) => {
+                let reward = WheelReward::Coin(CoinReward { 
+                    label: coin.label.clone(), 
+                    coin: coin.coin.clone(), 
+                    number: 1 
+                });
+
+                coin.number -= 1;
+
+                wheel_rewards[reward_idx] = WheelReward::Coin(coin);
 
                 spins_result.push((false, reward));
             }
@@ -691,9 +779,13 @@ fn withdraw_reward_msgs(
             // create msgs for transfering NFTs to recipient
             transfer_nft_msgs(msgs, recipient, collection.collection_address, collection.token_ids)?;
         }
-        WheelReward::Token(token) => {
+        WheelReward::FungibleToken(token) => {
+            // create msgs for transfering fungible token to recipient
+            transfer_token_msgs(msgs, recipient, token.token_address, token.amount)?;
+        }
+        WheelReward::Coin(coin) => {
             // send token to recipient
-            let send_msg = send_token_msg(recipient, vec![token.coin])?;
+            let send_msg = send_coin_msg(recipient, vec![coin.coin])?;
             msgs.push(send_msg);
 
         }
@@ -725,11 +817,32 @@ fn transfer_nft_msgs(
     Ok(())
 }
 
-fn send_token_msg(
+fn transfer_token_msgs(
+    msgs: &mut Vec<CosmosMsg>,
+    recipient: String,
+    contract_addr: String,
+    amount: Uint128
+) -> Result<(), ContractError> {
+
+    let transfer_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr,
+        msg: to_binary(&Cw20ExecuteMsg::Transfer { 
+            recipient, 
+            amount
+        })?,
+        funds: vec![],
+    });
+
+    msgs.push(transfer_msg);
+
+    Ok(())
+}
+
+fn send_coin_msg(
     recipient: String,
     amount: Vec<Coin>
 ) -> Result<CosmosMsg, ContractError> {
-    // send token to recipient
+    // send coin to recipient
     let send_msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
         to_address: recipient,
         amount,

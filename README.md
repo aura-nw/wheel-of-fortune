@@ -60,12 +60,20 @@ pub struct CollectionReward {
     pub token_ids: Vec<String> // list of token id, it's length is number of nft items in slot
 }
 
-// Token
 #[cw_serde]
 pub struct TokenReward {
     pub label: String, // label of slot
-    pub coin: Coin, // token amount etc 100uaura
+    pub token_address: String, // token contract address
+    pub amount: Uint128, // token amount
     pub number: u32 // number of token items in slot
+}
+
+// Token
+#[cw_serde]
+pub struct CoinReward {
+    pub label: String, // label of slot
+    pub coin: Coin, // coin amount etc 100uaura
+    pub number: u32 // number of coin items in slot
 }
 
 // Text
@@ -75,11 +83,12 @@ pub struct TextReward {
     pub number: u32, // number of text items in slot
 }
 
-// wheel reward can be `nft`, `token` or `text`
+// wheel reward can be `nft`, `token`, `coin` or `text`
 #[cw_serde]
 pub enum WheelReward {
     NftCollection(CollectionReward),
-    Token(TokenReward),
+    FungibleToken(TokenReward),
+    Coin(CoinReward),
     Text(TextReward)
 }
 
@@ -101,6 +110,17 @@ AddReward {
     add_reward {
         reward: {
             token {
+                label: "CW20 Fungible Token",
+                token_address: "aura1gud6mupw5cg255yk84xc4xd0dcxggpa48m58vrakam96xgaz6xvq7kwsmf",
+                amount: "1000"
+                number: 100 
+            }
+        }
+    }
+
+    add_reward {
+        reward: {
+            coin {
                 label: "Aura token",
                 coin: "300uaura",
                 number: 100 
@@ -169,6 +189,24 @@ withdraw_nft {
     recipient: "aura159mt7ryhxd9g07fjw5lpreqnv8yzuf72vh22zg",
     collection: "aura1gud6mupw5cg255yk84xc4xd0dcxggpa48m58vrakam96xgaz6xvq7kwsmf",
     token_ids: ["111","222","666"]
+}
+*/
+```
+- Only allow `Admin` to execute
+- Can only be executed when **Wheel** is activated and ended
+
+### WITHDRAW-TOKEN
+ Transfer token from contract to recipient
+```rust
+WithdrawToken {
+    recipient: Option<String>, // recipient of token, default is contract owner
+    token_address: String // token contract address
+}
+
+/* Example:
+withdraw_token {
+    recipient: "aura159mt7ryhxd9g07fjw5lpreqnv8yzuf72vh22zg",
+    token_address: "aura1gud6mupw5cg255yk84xc4xd0dcxggpa48m58vrakam96xgaz6xvq7kwsmf",
 }
 */
 ```

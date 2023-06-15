@@ -53,7 +53,7 @@ pub struct CollectionReward {
 }
 
 #[cw_serde]
-pub struct TokenReward {
+pub struct CoinReward {
     pub label: String,
     pub coin: Coin,
     pub number: u32
@@ -67,11 +67,21 @@ pub struct TextReward {
 }
 
 #[cw_serde]
+pub struct TokenReward {
+    pub label: String,
+    pub token_address: String,
+    pub amount: Uint128,
+    pub number: u32
+}
+
+#[cw_serde]
 pub enum WheelReward {
     NftCollection(CollectionReward),
-    Token(TokenReward),
+    FungibleToken(TokenReward),
+    Coin(CoinReward),
     Text(TextReward)
 }
+
 
 impl WheelReward {
     pub fn get_supply(&self) -> u32 {
@@ -79,8 +89,11 @@ impl WheelReward {
             Self::NftCollection(colecttion) => {
                 return colecttion.token_ids.len() as u32;
             }
-            Self::Token(token) => {
+            Self::FungibleToken(token) => {
                 return token.number;
+            }
+            Self::Coin(coin) => {
+                return coin.number;
             }
             Self::Text(text) => {
                 return text.number;
