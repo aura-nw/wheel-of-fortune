@@ -36,8 +36,8 @@ pub enum ContractError {
     #[error("Player not found")]
     PlayerNotFound {},
 
-    #[error("Too many spins")]
-    TooManySpins {},
+    #[error("Invalid number spins")]
+    InvalidNumberSpins {},
 
     #[error("Too many nfts")]
     TooManyNfts {},

@@ -366,8 +366,8 @@ pub fn spin(
     let config = CONFIG.load(deps.storage)?;
 
     let spins = number.unwrap_or(1);
-    if spins > MAX_SPINS_PER_TURN {
-        return Err(ContractError::TooManySpins{})
+    if spins == 0 || spins > MAX_SPINS_PER_TURN {
+        return Err(ContractError::InvalidNumberSpins {});
     }
 
     let spinned_result = WHITELIST.may_load(deps.storage, info.sender.clone())?;
@@ -403,7 +403,7 @@ pub fn spin(
         return Err(ContractError::InsufficentFund {});
     }
 
-    if spins > config.max_spins_per_address || (spinned + spins) > config.max_spins_per_address {
+    if spins > config.max_spins_per_address || spins > (config.max_spins_per_address - spinned) {
         return Err(ContractError::CustomError {
             val: format!("Too many spins request: {} left", config.max_spins_per_address - spinned)
         });
