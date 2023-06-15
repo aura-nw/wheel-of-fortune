@@ -150,7 +150,7 @@ pub fn remove_whitelist(
     Ok(Response::new().add_attribute("action", "remove_whitelist"))
 }
 
-pub fn add_collection_reward(
+fn add_collection_reward(
     wheel_rewards: &mut Vec<WheelReward>,
     msgs: &mut Vec<CosmosMsg>,
     recipient: String,
@@ -177,7 +177,7 @@ pub fn add_collection_reward(
     Ok(())
 }
 
-pub fn add_token_reward(
+fn add_token_reward(
     wheel_rewards: &mut Vec<WheelReward>,
     msgs: &mut Vec<CosmosMsg>,
     recipient: String,
@@ -273,8 +273,12 @@ pub fn add_reward(
 
     WHEEL_REWARDS.save(deps.storage, &wheel_rewards)?;
 
-    Ok(Response::new().add_attribute("action", "add_rewards")
-        .add_messages(msgs))
+    if msgs.len() > 0 {
+        Ok(Response::new().add_attribute("action", "add_rewards")
+            .add_messages(msgs))
+    }else{
+        Ok(Response::new().add_attribute("action", "add_rewards"))
+    }
 }
 
 fn remove_reward(
@@ -322,11 +326,6 @@ pub fn activate_wheel(
 
     // check if wheel is not activated and sender is contract admin
     is_not_activate_and_owned(deps.storage, info.sender)?;
-    
-    let mut admin_config: AdminConfig = ADMIN_CONFIG.load(deps.storage)?;
-
-    admin_config.activate = true;
-    ADMIN_CONFIG.save(deps.storage, &admin_config)?;
 
     if let Some(start_time) = start_time {
         if start_time >= end_time {
@@ -337,6 +336,11 @@ pub fn activate_wheel(
     if end_time <= env.block.time {
         return Err(ContractError::WheelEnded {});
     }
+
+    let mut admin_config: AdminConfig = ADMIN_CONFIG.load(deps.storage)?;
+
+    admin_config.activate = true;
+    ADMIN_CONFIG.save(deps.storage, &admin_config)?;
 
     let mut config = CONFIG.load(deps.storage)?;
     config.fee = fee;
@@ -792,7 +796,6 @@ fn withdraw_reward_msgs(
             // send token to recipient
             let send_msg = send_coin_msg(recipient, vec![coin.coin])?;
             msgs.push(send_msg);
-
         }
         WheelReward::Text(_text) => {}
     }
