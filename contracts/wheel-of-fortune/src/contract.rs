@@ -190,7 +190,7 @@ fn add_token_reward(
 
     let total_amount = token.amount.checked_mul(Uint128::from(token.number as u128)).unwrap();
 
-    transfer_token_msgs(
+    transfer_token_msg(
         msgs, 
         recipient, 
         token.token_address.clone(), 
@@ -250,6 +250,11 @@ pub fn add_reward(
     // list rewards of the wheel
     let mut wheel_rewards = WHEEL_REWARDS.load(deps.storage)?;
 
+    // maybe useless check
+    if wheel_rewards.len() >= (u32::MAX as usize){
+        return Err(ContractError::TooManyRewards {});
+    }
+
     let mut msgs: Vec<CosmosMsg> = Vec::new();
 
     match reward {
@@ -284,7 +289,7 @@ pub fn add_reward(
 fn remove_reward(
     deps: DepsMut,
     info: MessageInfo,
-    slot: usize
+    slot: u32
 ) -> Result<Response, ContractError> {
 
     // check if wheel is not activated and sender is contract admin
@@ -294,12 +299,12 @@ fn remove_reward(
     let mut wheel_rewards = WHEEL_REWARDS.load(deps.storage)?;
 
     // slot out of range
-    if slot >= wheel_rewards.len() {
+    if (slot as usize) >= wheel_rewards.len() {
         return Err(ContractError::InvalidSlotReward {});
     } 
     
     // get and remove reward at slot
-    let reward = wheel_rewards.remove(slot);
+    let reward = wheel_rewards.remove(slot as usize);
 
     let mut msgs: Vec<CosmosMsg> = Vec::new();
 
@@ -403,7 +408,7 @@ pub fn spin(
         return Err(ContractError::InsufficentFund {});
     }
 
-    if spins > config.max_spins_per_address || spins > (config.max_spins_per_address - spinned) {
+    if spins > (config.max_spins_per_address - spinned) {
         return Err(ContractError::CustomError {
             val: format!("Too many spins request: {} left", config.max_spins_per_address - spinned)
         });
@@ -456,7 +461,7 @@ pub fn claim_reward(
     deps: DepsMut,
     _env: Env,
     info: MessageInfo,
-    rewards: Vec<usize>
+    rewards: Vec<u32>
 ) -> Result<Response, ContractError> {
 
     let admin_config = ADMIN_CONFIG.load(deps.storage)?;
@@ -474,12 +479,12 @@ pub fn claim_reward(
     let mut msgs: Vec<CosmosMsg> = Vec::new();
 
     for idx in rewards {
-        if let Some((is_claimed, reward)) = spins_result.get(idx){
+        if let Some((is_claimed, reward)) = spins_result.get(idx as usize){
             if !is_claimed {
 
                 withdraw_reward_msgs(reward.to_owned(), info.sender.to_string(), msgs.as_mut())?;
 
-                spins_result[idx].0 = true;       
+                spins_result[idx as usize].0 = true;       
             }
         }
     }
@@ -528,10 +533,7 @@ pub fn withdraw(
     deps.api.addr_validate(&recipient)?;
 
     // with draw token
-    let send_msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
-        to_address: recipient.clone(),
-        amount: vec![contract_balance.amount],
-    }); 
+    let send_msg = send_coin_msg(recipient.clone(), vec![contract_balance.amount])?;
 
     Ok(Response::new().add_attribute("action", "withdraw")
         .add_attribute("denom", denom)
@@ -604,7 +606,7 @@ pub fn withdraw_token(
     }
 
     let mut msgs: Vec<CosmosMsg> = Vec::new();
-    transfer_token_msgs(msgs.as_mut(), recipient.clone(), token_address, contract_balance.balance)?;
+    transfer_token_msg(msgs.as_mut(), recipient.clone(), token_address, contract_balance.balance)?;
 
     Ok(Response::new().add_attribute("action", "withdraw_token")
     .add_attribute("receiver", recipient)
@@ -789,8 +791,8 @@ fn withdraw_reward_msgs(
             transfer_nft_msgs(msgs, recipient, collection.collection_address, collection.token_ids)?;
         }
         WheelReward::FungibleToken(token) => {
-            // create msgs for transfering fungible token to recipient
-            transfer_token_msgs(msgs, recipient, token.token_address, token.amount)?;
+            // create msg for transfering fungible token to recipient
+            transfer_token_msg(msgs, recipient, token.token_address, token.amount)?;
         }
         WheelReward::Coin(coin) => {
             // send token to recipient
@@ -825,7 +827,7 @@ fn transfer_nft_msgs(
     Ok(())
 }
 
-fn transfer_token_msgs(
+fn transfer_token_msg(
     msgs: &mut Vec<CosmosMsg>,
     recipient: String,
     contract_addr: String,

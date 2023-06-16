@@ -32,7 +32,7 @@ pub enum ExecuteMsg {
     },
 
     RemoveReward {
-        slot: usize
+        slot: u32
     },
 
     AddReward {
@@ -67,7 +67,7 @@ pub enum ExecuteMsg {
     },
 
     ClaimReward {
-        rewards: Vec<usize>
+        rewards: Vec<u32>
     },
 
     // nois callback

@@ -42,6 +42,9 @@ pub enum ContractError {
     #[error("Too many nfts")]
     TooManyNfts {},
 
+    #[error("Too many rewards")]
+    TooManyRewards {},
+
     #[error("Insufficent fund")]
     InsufficentFund {},
 
