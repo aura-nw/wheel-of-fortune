@@ -27,6 +27,7 @@ const CONTRACT_NAME: &str = "crates.io:wheel-of-fortune";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const MAX_TEXT_LENGTH: usize = 64;
+const MAX_VEC_ITEM: usize = 65536;
 const MAX_SPINS_PER_TURN: u32 = 10;
 const DEFAULT_ACTIVATE: bool = false;
 
@@ -157,7 +158,7 @@ fn add_collection_reward(
     collection: CollectionReward
 ) -> Result<(), ContractError> {
     
-    if collection.token_ids.len() > (u32::MAX as usize) {
+    if collection.token_ids.len() > MAX_VEC_ITEM {
         return Err(ContractError::TooManyNfts {})
     }
 
@@ -250,8 +251,7 @@ pub fn add_reward(
     // list rewards of the wheel
     let mut wheel_rewards = WHEEL_REWARDS.load(deps.storage)?;
 
-    // maybe useless check
-    if wheel_rewards.len() >= (u32::MAX as usize){
+    if wheel_rewards.len() >= MAX_VEC_ITEM {
         return Err(ContractError::TooManyRewards {});
     }
 
@@ -309,6 +309,9 @@ fn remove_reward(
     let mut msgs: Vec<CosmosMsg> = Vec::new();
 
     withdraw_reward_msgs(reward, info.sender.to_string(), msgs.as_mut())?;
+
+    // update wheel rewards
+    WHEEL_REWARDS.save(deps.storage, &wheel_rewards)?;
 
     if msgs.len() > 0 {
         return Ok(Response::new().add_attribute("action", "remove_reward")
@@ -641,7 +644,7 @@ pub fn nois_receive(
 
     let _ = select_wheel_rewards(deps.storage, random_job.player, randomness, key, random_job.spins)?;
     
-    // job finished, just remove it
+    // job finished, just remove
     RANDOM_JOBS.remove(deps.storage, job_id);
 
     Ok(Response::new().add_attribute("action", "nois_receive"))
@@ -783,8 +786,12 @@ fn select_wheel_rewards(
             }
         }
     } 
-     
+    
+    // update spins result
     SPINS_RESULT.save(storage, player, &spins_result)?;
+
+    // update wheel rewards
+    WHEEL_REWARDS.save(storage, &wheel_rewards)?;
 
     Ok(randomness)
 }
