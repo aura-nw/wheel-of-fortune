@@ -8,9 +8,10 @@
 ```rust
 ActivateWheel {
     fee: UserFee, // fee pay for spin
-    start_time: Option<Timestamp>, // start time of wheel
-    end_time: Timestamp // end time of wheel
-},
+    start_time: Option<Timestamp>, // start time of wheel, default is current block time
+    end_time: Timestamp, // end time of wheel
+    shuffle: Option<bool>, // shuffle wheel rewards if true, default `false`
+}
 ```
 - Only allow `Admin` to execute
 - Can only be executed when **Wheel** is not activated
@@ -307,3 +308,11 @@ GetPlayerSpinned{
 ```rust
 GetWheelConfig{}
 ```
+
+### SPINNABLE
+ Check if the address can spin the wheel and get the number of turns left
+ ```rust
+ Spinnable{
+    address: String // wallet address of player
+ }
+ ```
