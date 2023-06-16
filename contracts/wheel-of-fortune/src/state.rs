@@ -19,11 +19,6 @@ impl UserFee {
     }
 }
 
-#[cw_serde]
-pub struct NoisConfig {
-    pub nois_proxy: Addr,
-    pub fee: Coin
-}
 
 #[cw_serde]
 pub struct Config {
