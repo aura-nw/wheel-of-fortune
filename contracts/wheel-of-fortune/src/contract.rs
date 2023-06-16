@@ -215,7 +215,7 @@ fn add_coin_reward(
 
     let total_amount = coin.coin.amount.checked_mul(Uint128::from(coin.number as u128)).unwrap();
         
-    if has_coin(funds, coin.coin.denom.clone(), total_amount) {
+    if !has_coin(funds, coin.coin.denom.clone(), total_amount) {
         return Err(ContractError::InsufficentFund {});
     }
 
@@ -407,7 +407,7 @@ pub fn spin(
         total_amount = total_amount.checked_add(config.fee.nois_fee).unwrap();
     }
 
-    if has_coin(info.funds, config.fee.denom.clone(), total_amount) {
+    if !has_coin(info.funds, config.fee.denom.clone(), total_amount) {
         return Err(ContractError::InsufficentFund {});
     }
 
@@ -517,7 +517,7 @@ pub fn withdraw(
     is_activate_and_owned(deps.storage, info.sender.clone())?;
     
     let config = CONFIG.load(deps.storage)?;
-    if config.end_time.unwrap() > env.block.time {
+    if config.end_time.unwrap() >= env.block.time {
         return Err(ContractError::WheelNotEnded {});
     }
 
@@ -557,7 +557,7 @@ pub fn withdraw_nft(
     is_activate_and_owned(deps.storage, info.sender.clone())?;
     
     let config = CONFIG.load(deps.storage)?;
-    if config.end_time.unwrap() > env.block.time {
+    if config.end_time.unwrap() >= env.block.time {
         return Err(ContractError::WheelNotEnded {});
     }
 
@@ -586,7 +586,7 @@ pub fn withdraw_token(
     is_activate_and_owned(deps.storage, info.sender.clone())?;
     
     let config = CONFIG.load(deps.storage)?;
-    if config.end_time.unwrap() > env.block.time {
+    if config.end_time.unwrap() >= env.block.time {
         return Err(ContractError::WheelNotEnded {});
     }
 
