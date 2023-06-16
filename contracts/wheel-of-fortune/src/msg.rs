@@ -7,17 +7,17 @@ use nois::NoisCallback;
 /// Message type for `instantiate` entry_point
 #[cw_serde]
 pub struct InstantiateMsg {
+    // length must be less than 64 character
     pub wheel_name: String,
+    // must be hex string and has length 64
     pub random_seed: String,
+    // must greater than 0
     pub max_spins_per_address: u32,
     pub is_public: bool,
     pub is_advanced_randomness: bool,
+    // bench32 string address
     pub nois_proxy: String,
 }
-
-/* 
-'{"wheel_name":"test","random_seed":"12345678","max_spins_per_address":5,"is_public":true,"is_advanced_randomness":false,"nois_proxy":"aura159mt7ryhxd9g07fjw5lpreqnv8yzuf72vh22zg","fee":{"denom":"uaura","spin_price":"100","nois_fee":"300"}}'
-*/
 
 /// Message type for `execute` entry_point
 #[cw_serde]

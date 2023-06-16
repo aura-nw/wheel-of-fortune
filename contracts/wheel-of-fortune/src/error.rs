@@ -9,6 +9,9 @@ pub enum ContractError {
     #[error("Unauthorized")]
     Unauthorized {},
 
+    #[error("Invalid address")]
+    InvalidAddress {},
+    
     #[error("Text too long")]
     TextTooLong {},
 

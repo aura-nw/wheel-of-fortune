@@ -1,7 +1,7 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    Binary, Deps, DepsMut, Env, MessageInfo, Response, ensure_eq, BankMsg, BankQuery, BalanceResponse,
+    Binary, Deps, DepsMut, Env, MessageInfo, Response, ensure_eq, BankMsg, BankQuery, BalanceResponse, Api,
     StdResult, Storage, Addr, Timestamp, WasmMsg, to_binary, CosmosMsg, Uint128, Coin, coins, QueryRequest
 };
 use cw2::set_contract_version;
@@ -48,7 +48,7 @@ pub fn instantiate(
         return Err(ContractError::CustomError {val: "the maximum number of spins must be greater than 0".to_string()});
     }
 
-    let nois_proxy = deps.api.addr_validate(&msg.nois_proxy)?;
+    let nois_proxy = addr_validate(deps.api, &msg.nois_proxy)?;
 
     let config = Config { 
         wheel_name: msg.wheel_name, 
@@ -530,7 +530,7 @@ pub fn withdraw(
     }
     
     let recipient = recipient.unwrap_or(info.sender.to_string());
-    deps.api.addr_validate(&recipient)?;
+    addr_validate(deps.api,&recipient)?;
 
     // with draw token
     let send_msg = send_coin_msg(recipient.clone(), vec![contract_balance.amount])?;
@@ -560,8 +560,8 @@ pub fn withdraw_nft(
 
     let recipient = recipient.unwrap_or(info.sender.to_string());
 
-    deps.api.addr_validate(&recipient)?;
-    deps.api.addr_validate(&collection_address)?;
+    addr_validate(deps.api, &recipient)?;
+    addr_validate(deps.api, &collection_address)?;
 
     let mut msgs: Vec<CosmosMsg> = Vec::new();
     transfer_nft_msgs(msgs.as_mut(), recipient.clone(), collection_address, token_ids)?;
@@ -589,8 +589,8 @@ pub fn withdraw_token(
 
     let recipient = recipient.unwrap_or(info.sender.to_string());
 
-    deps.api.addr_validate(&recipient)?;
-    deps.api.addr_validate(&token_address)?;
+    addr_validate(deps.api, &recipient)?;
+    addr_validate(deps.api, &token_address)?;
     
     // get the token balance of contract
     let contract_balance: Cw20BalanceResponse =
@@ -631,7 +631,7 @@ pub fn nois_receive(
         .map_err(|_| ContractError::InvalidRandomness{})?;
 
     let random_job: RandomJob = 
-        if let Some(job) = RANDOM_JOBS.may_load(deps.storage, job_id)? {
+        if let Some(job) = RANDOM_JOBS.may_load(deps.storage, job_id.clone())? {
             job
         }else{
             return Err(ContractError::RandomJobNotFound {});
@@ -640,10 +640,20 @@ pub fn nois_receive(
     let key = format!("{}", env.block.time);
 
     let _ = select_wheel_rewards(deps.storage, random_job.player, randomness, key, random_job.spins)?;
+    
+    // job finished, just remove it
+    RANDOM_JOBS.remove(deps.storage, job_id);
 
     Ok(Response::new().add_attribute("action", "nois_receive"))
 }
 
+/// validate string if it is valid bench32 string addresss
+fn addr_validate(api: &dyn Api, addr: &str) -> Result<Addr, ContractError> {
+    let addr = api.addr_validate(addr).map_err(|_| ContractError::InvalidAddress{})?;
+    Ok(addr)
+}
+
+/// check if funds and required amount is equal
 fn has_coin(
     funds: Vec<Coin>,
     denom: String,
