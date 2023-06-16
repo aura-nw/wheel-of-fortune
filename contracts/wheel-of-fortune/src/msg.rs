@@ -42,7 +42,8 @@ pub enum ExecuteMsg {
     ActivateWheel {
         fee: UserFee,
         start_time: Option<Timestamp>,
-        end_time: Timestamp
+        end_time: Timestamp,
+        shuffle: Option<bool>
     },
 
     Withdraw {
@@ -93,6 +94,9 @@ pub enum QueryMsg {
 
     #[returns(Config)]
     GetWheelConfig{},
+
+    #[returns(Vec<String>)]
+    GetWhitelist{}
 }
 
 // We define a custom struct for each query response

@@ -19,7 +19,7 @@ use crate::state::{
 
 use nois::{
     randomness_from_str, NoisCallback, select_from_weighted,
-    ProxyExecuteMsg, sub_randomness_with_key
+    ProxyExecuteMsg, sub_randomness_with_key, shuffle as nois_shuffle
 };
 
 // version info for migration info
@@ -95,7 +95,7 @@ pub fn execute(
         ExecuteMsg::RemoveWhitelist { addresses } => remove_whitelist(deps, info, addresses),
         ExecuteMsg::AddReward { reward } => add_reward(deps, env, info, reward),
         ExecuteMsg::RemoveReward { slot } => remove_reward(deps, info, slot),
-        ExecuteMsg::ActivateWheel { fee, start_time, end_time } => activate_wheel(deps, env, info, fee, start_time, end_time),
+        ExecuteMsg::ActivateWheel { fee, start_time, end_time, shuffle } => activate_wheel(deps, env, info, fee, start_time, end_time, shuffle),
         ExecuteMsg::Withdraw { recipient, denom } => withdraw(deps, env, info, recipient, denom),
         ExecuteMsg::WithdrawNft { recipient, collection, token_ids } => withdraw_nft(deps, env, info, recipient, collection, token_ids),
         ExecuteMsg::WithdrawToken { recipient, token_address } => withdraw_token(deps, env, info, recipient, token_address),
@@ -259,10 +259,16 @@ pub fn add_reward(
 
     match reward {
         WheelReward::NftCollection(collection) => {
+            // validate collection contract address
+            addr_validate(deps.api, &collection.collection_address)?;
+
             // add collection to wheel rewards list
             add_collection_reward(wheel_rewards.as_mut(), msgs.as_mut(), env.contract.address.to_string(), collection)?;
         }
         WheelReward::FungibleToken(token) => {
+            // validate token contract address
+            addr_validate(deps.api, &token.token_address)?;
+
             // add token to wheel rewards list
             add_token_reward(wheel_rewards.as_mut(), msgs.as_mut(), env.contract.address.to_string(), token)?;
         }
@@ -329,7 +335,8 @@ pub fn activate_wheel(
     info: MessageInfo,
     fee: UserFee,
     start_time: Option<Timestamp>,
-    end_time: Timestamp
+    end_time: Timestamp,
+    shuffle: Option<bool>
 ) -> Result<Response, ContractError> {
 
     // check if wheel is not activated and sender is contract admin
@@ -355,6 +362,18 @@ pub fn activate_wheel(
     config.start_time = start_time;
     config.end_time = Some(end_time);
     CONFIG.save(deps.storage, &config)?;
+
+    let shuffle = shuffle.unwrap_or(false);
+    // if required, shuffle wheel rewards
+    if shuffle {
+        let random_seend = RANDOM_SEED.load(deps.storage)?;
+        let wheel_rewards = WHEEL_REWARDS.load(deps.storage)?;
+
+        let wheel_rewards_shuffled = nois_shuffle(random_seend, wheel_rewards);
+
+        // save rewards after shuffled
+        WHEEL_REWARDS.save(deps.storage, &wheel_rewards_shuffled)?;
+    }
 
     Ok(Response::new().add_attribute("action", "activate_wheel"))
 }
@@ -730,6 +749,7 @@ fn select_wheel_rewards(
         // update weighted
         list_weighted[reward_idx].1 -= 1;
 
+        // save spins result and update wheel rewards
         match wheel_rewards[reward_idx].clone() {
             WheelReward::NftCollection(mut collection) => {
                 let reward = WheelReward::NftCollection(CollectionReward { 
@@ -884,7 +904,8 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::GetWheelRewards{} => to_binary(&get_wheel_rewards(deps)?),
         QueryMsg::GetPlayerRewards{address} => to_binary(&get_player_rewards(deps, address)?),
         QueryMsg::GetPlayerSpinned{address} => to_binary(&get_player_spinned(deps, address)?),
-        QueryMsg::GetWheelConfig {} => to_binary(&get_wheel_config(deps)?)
+        QueryMsg::GetWheelConfig {} => to_binary(&get_wheel_config(deps)?),
+        QueryMsg::GetWhitelist {} => to_binary(&get_whitelist(deps)?)
     }
 }
 
@@ -914,4 +935,9 @@ fn get_wheel_config(
     CONFIG.load(deps.storage)
 }
 
+fn get_whitelist(
+    _deps: Deps
+) -> StdResult<Vec<String>> {
+    Ok(Vec::new())
+}
 
