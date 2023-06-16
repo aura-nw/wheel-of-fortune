@@ -2,7 +2,8 @@
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     Binary, Deps, DepsMut, Env, MessageInfo, Response, ensure_eq, BankMsg, BankQuery, BalanceResponse, Api,
-    StdResult, Storage, Addr, Timestamp, WasmMsg, to_binary, CosmosMsg, Uint128, Coin, coins, QueryRequest
+    StdResult, Storage, Addr, Timestamp, WasmMsg, to_binary, CosmosMsg, Uint128, Coin, coins, QueryRequest,
+    Order
 };
 use cw2::set_contract_version;
 
@@ -899,13 +900,13 @@ fn send_coin_msg(
 
 /// Handling contract query
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
+pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::GetWheelRewards{} => to_binary(&get_wheel_rewards(deps)?),
         QueryMsg::GetPlayerRewards{address} => to_binary(&get_player_rewards(deps, address)?),
         QueryMsg::GetPlayerSpinned{address} => to_binary(&get_player_spinned(deps, address)?),
         QueryMsg::GetWheelConfig {} => to_binary(&get_wheel_config(deps)?),
-        QueryMsg::GetWhitelist {} => to_binary(&get_whitelist(deps)?)
+        QueryMsg::Spinnable {address} => to_binary(&spinnable(deps, env, address)?)
     }
 }
 
@@ -935,9 +936,36 @@ fn get_wheel_config(
     CONFIG.load(deps.storage)
 }
 
-fn get_whitelist(
-    _deps: Deps
-) -> StdResult<Vec<String>> {
-    Ok(Vec::new())
+fn spinnable(
+    deps: Deps,
+    env: Env,
+    address: String
+) -> StdResult<Option<u32>> {
+    
+    let admin_config = ADMIN_CONFIG.load(deps.storage).unwrap();
+    if !admin_config.activate {
+        return Ok(None);
+    }
+    
+    let config = CONFIG.load(deps.storage).unwrap();
+    let spinned_result = WHITELIST.may_load(deps.storage, Addr::unchecked(address)).unwrap();
+
+    if !config.is_public && spinned_result.is_none() {
+        return Ok(None);
+    }
+
+    if let Some(start_time) = config.start_time {
+        if start_time > env.block.time {
+            return Ok(None);
+        }
+    }
+
+    if config.end_time.unwrap() < env.block.time {
+        return Ok(None);
+    }
+
+    let spinned = spinned_result.unwrap_or(0);
+
+    Ok(Some(config.max_spins_per_address - spinned))
 }
 

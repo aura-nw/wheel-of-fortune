@@ -95,8 +95,8 @@ pub enum QueryMsg {
     #[returns(Config)]
     GetWheelConfig{},
 
-    #[returns(Vec<String>)]
-    GetWhitelist{}
+    #[returns(Option<bool>)]
+    Spinnable{address: String}
 }
 
 // We define a custom struct for each query response
