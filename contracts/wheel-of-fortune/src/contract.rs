@@ -658,8 +658,9 @@ pub fn nois_receive(
         }else{
             return Err(ContractError::RandomJobNotFound {});
         };
-
-    let key = format!("{}", env.block.time);
+    
+    // init a key for the random provider from the job id and current time
+    let key = format!("{}{}", job_id.clone(), env.block.time);
 
     let _ = select_wheel_rewards(deps.storage, random_job.player, randomness, key, random_job.spins)?;
     
@@ -727,7 +728,7 @@ fn select_wheel_rewards(
 
     let mut spins_result = SPINS_RESULT.load(storage, player.clone())?;
 
-    let mut list_weighted: Vec<(usize, u32)> = Vec::new();
+    let mut list_weighted: Vec<(usize, u32)> = Vec::with_capacity(wheel_rewards.len());
     for idx in 0..wheel_rewards.len() {
 
         let reward_supply =  wheel_rewards[idx].get_supply();
