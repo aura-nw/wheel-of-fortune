@@ -19,7 +19,8 @@ use crate::state::{
 
 use nois::{
     randomness_from_str, NoisCallback, select_from_weighted,
-    ProxyExecuteMsg, sub_randomness_with_key, shuffle as nois_shuffle
+    ProxyExecuteMsg, sub_randomness_with_key, shuffle as nois_shuffle,
+    int_in_range
 };
 
 // version info for migration info
@@ -753,12 +754,15 @@ fn select_wheel_rewards(
         // save spins result and update wheel rewards
         match wheel_rewards[reward_idx].clone() {
             WheelReward::NftCollection(mut collection) => {
+                // get random nft in collection
+                let id_idx = int_in_range(randomness, 0, collection.token_ids.len() - 1);
+                
                 let reward = WheelReward::NftCollection(CollectionReward { 
                     label: collection.label.clone(), 
                     collection_address: collection.collection_address.clone(), 
-                    token_ids: vec![collection.token_ids.pop().unwrap()] 
+                    token_ids: vec![collection.token_ids.swap_remove(id_idx)] 
                 });
-                
+
                 wheel_rewards[reward_idx] = WheelReward::NftCollection(collection);
 
                 spins_result.push((false, reward));
