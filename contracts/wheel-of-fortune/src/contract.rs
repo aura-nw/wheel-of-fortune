@@ -413,7 +413,7 @@ pub fn spin(
     // Check if the wheel has enough rewards
     // In basic random mode, this check is unnecessary because NOIS function `selected_from_weighted` has checkpoint for this situation
     // But in advanced random mode, we need this to ensure reward always sufficient
-    let (supply, _) = WHEEL_REWARDS.load(deps.storage)?;
+    let (supply, wheel_rewards) = WHEEL_REWARDS.load(deps.storage)?;
     if supply < spins {
         return Err(ContractError::InsufficentReward {});
     }
@@ -459,6 +459,9 @@ pub fn spin(
     }
 
     WHITELIST.save(deps.storage, info.sender.clone(), &(spinned + spins))?;
+
+    // update wheel's total reward supply
+    WHEEL_REWARDS.save(deps.storage, &(supply - spins, wheel_rewards))?;
 
     if config.is_advanced_randomness {
 
@@ -687,7 +690,7 @@ pub fn nois_receive(
     // init a key for the random provider from the job id and current time
     let key = format!("{}{}", job_id.clone(), env.block.time);
 
-    let _ = select_wheel_rewards(deps.storage, random_job.player, randomness, key, random_job.spins)?;
+    select_wheel_rewards(deps.storage, random_job.player, randomness, key, random_job.spins)?;
     
     // job finished, just remove
     RANDOM_JOBS.remove(deps.storage, job_id);
@@ -853,7 +856,7 @@ fn select_wheel_rewards(
     SPINS_RESULT.save(storage, player, &spins_result)?;
 
     // update wheel rewards
-    WHEEL_REWARDS.save(storage, &(supply - spins, wheel_rewards))?;
+    WHEEL_REWARDS.save(storage, &(supply, wheel_rewards))?;
 
     Ok(randomness)
 }
