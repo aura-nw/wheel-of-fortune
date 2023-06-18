@@ -74,7 +74,7 @@ pub fn instantiate(
     let randomness = randomness_from_str(msg.random_seed).unwrap();
     RANDOM_SEED.save(deps.storage, &randomness)?;
 
-    WHEEL_REWARDS.save(deps.storage, &Vec::new())?;
+    WHEEL_REWARDS.save(deps.storage, &(0u32, Vec::new()))?;
 
     Ok(Response::new()
         .add_attribute("method", "instantiate")
@@ -250,10 +250,10 @@ pub fn add_reward(
     is_not_activate_and_owned(deps.storage, info.sender)?;
 
     // list rewards of the wheel
-    let mut wheel_rewards = WHEEL_REWARDS.load(deps.storage)?;
+    let (mut supply, mut wheel_rewards) = WHEEL_REWARDS.load(deps.storage)?;
 
     if wheel_rewards.len() >= MAX_VEC_ITEM {
-        return Err(ContractError::TooManyRewards {});
+        return Err(ContractError::TooManySlots {});
     }
 
     let mut msgs: Vec<CosmosMsg> = Vec::new();
@@ -263,6 +263,9 @@ pub fn add_reward(
             // validate collection contract address
             addr_validate(deps.api, &collection.collection_address)?;
 
+            // increase wheel's total reward supply
+            supply = checked_add_supply(supply, collection.token_ids.len() as u32)?;
+
             // add collection to wheel rewards list
             add_collection_reward(wheel_rewards.as_mut(), msgs.as_mut(), env.contract.address.to_string(), collection)?;
         }
@@ -270,20 +273,29 @@ pub fn add_reward(
             // validate token contract address
             addr_validate(deps.api, &token.token_address)?;
 
+            // increase wheel's total reward supply
+            supply = checked_add_supply(supply, token.number)?;
+
             // add token to wheel rewards list
             add_token_reward(wheel_rewards.as_mut(), msgs.as_mut(), env.contract.address.to_string(), token)?;
         }
         WheelReward::Coin(coin) => {
+            // increase wheel's total reward supply
+            supply = checked_add_supply(supply, coin.number)?;
+
             // add coint to wheel rewards list
             add_coin_reward(wheel_rewards.as_mut(), info.funds, coin)?;
         }
         WheelReward::Text(text) => {
+            // increase wheel's total reward supply
+            supply = checked_add_supply(supply, text.number)?;
+
             // add text to wheel rewards list
             add_text_reward(wheel_rewards.as_mut(), text)?;
         }
     }
 
-    WHEEL_REWARDS.save(deps.storage, &wheel_rewards)?;
+    WHEEL_REWARDS.save(deps.storage, &(supply, wheel_rewards))?;
 
     if msgs.len() > 0 {
         Ok(Response::new().add_attribute("action", "add_rewards")
@@ -303,7 +315,7 @@ fn remove_reward(
     is_not_activate_and_owned(deps.storage, info.sender.clone())?;
 
     // list rewards of the wheel
-    let mut wheel_rewards = WHEEL_REWARDS.load(deps.storage)?;
+    let (supply, mut wheel_rewards) = WHEEL_REWARDS.load(deps.storage)?;
 
     // slot out of range
     if (slot as usize) >= wheel_rewards.len() {
@@ -315,10 +327,10 @@ fn remove_reward(
 
     let mut msgs: Vec<CosmosMsg> = Vec::new();
 
-    withdraw_reward_msgs(reward, info.sender.to_string(), msgs.as_mut())?;
+    let removed_supply = withdraw_reward_msgs(reward, info.sender.to_string(), msgs.as_mut())?;
 
     // update wheel rewards
-    WHEEL_REWARDS.save(deps.storage, &wheel_rewards)?;
+    WHEEL_REWARDS.save(deps.storage, &(supply - removed_supply, wheel_rewards))?;
 
     if msgs.len() > 0 {
         return Ok(Response::new().add_attribute("action", "remove_reward")
@@ -368,12 +380,12 @@ pub fn activate_wheel(
     // if required, shuffle wheel rewards
     if shuffle {
         let random_seend = RANDOM_SEED.load(deps.storage)?;
-        let wheel_rewards = WHEEL_REWARDS.load(deps.storage)?;
+        let (supply, wheel_rewards) = WHEEL_REWARDS.load(deps.storage)?;
 
         let wheel_rewards_shuffled = nois_shuffle(random_seend, wheel_rewards);
 
         // save rewards after shuffled
-        WHEEL_REWARDS.save(deps.storage, &wheel_rewards_shuffled)?;
+        WHEEL_REWARDS.save(deps.storage, &(supply, wheel_rewards_shuffled))?;
     }
 
     Ok(Response::new().add_attribute("action", "activate_wheel"))
@@ -396,6 +408,14 @@ pub fn spin(
     let spins = number.unwrap_or(1);
     if spins == 0 || spins > MAX_SPINS_PER_TURN {
         return Err(ContractError::InvalidNumberSpins {});
+    }
+
+    // Check if the wheel has enough rewards
+    // In basic random mode, this check is unnecessary because NOIS function `selected_from_weighted` has checkpoint for this situation
+    // But in advanced random mode, we need this to ensure reward always sufficient
+    let (supply, _) = WHEEL_REWARDS.load(deps.storage)?;
+    if supply < spins {
+        return Err(ContractError::InsufficentReward {});
     }
 
     let spinned_result = WHITELIST.may_load(deps.storage, info.sender.clone())?;
@@ -677,6 +697,12 @@ fn addr_validate(api: &dyn Api, addr: &str) -> Result<Addr, ContractError> {
     Ok(addr)
 }
 
+/// Make sure that the total reward supply does not exceed u32::MAX, 
+/// which results in error of NOIS funtion's `select_from_weighted`
+fn checked_add_supply(supply: u32, inc: u32) -> Result<u32, ContractError> {
+    supply.checked_add(inc).ok_or_else(|| ContractError::TooManyRewards {})
+}
+
 /// check if funds and required amount is equal
 fn has_coin(
     funds: Vec<Coin>,
@@ -725,7 +751,7 @@ fn select_wheel_rewards(
     spins: u32
 ) -> Result<[u8; 32], ContractError> {
 
-    let mut wheel_rewards = WHEEL_REWARDS.load(storage)?;
+    let (supply, mut wheel_rewards) = WHEEL_REWARDS.load(storage)?;
 
     let mut spins_result = SPINS_RESULT.load(storage, player.clone())?;
 
@@ -816,7 +842,7 @@ fn select_wheel_rewards(
     SPINS_RESULT.save(storage, player, &spins_result)?;
 
     // update wheel rewards
-    WHEEL_REWARDS.save(storage, &wheel_rewards)?;
+    WHEEL_REWARDS.save(storage, &(supply - spins, wheel_rewards))?;
 
     Ok(randomness)
 }
@@ -824,27 +850,44 @@ fn select_wheel_rewards(
 fn withdraw_reward_msgs(
     reward: WheelReward,
     recipient: String,
-    msgs: &mut Vec<CosmosMsg>
-) -> Result<(), ContractError> {
+    msgs: &mut Vec<CosmosMsg>,
+) -> Result<u32, ContractError> {
 
-    match reward {
+    let removed_supply = match reward {
         WheelReward::NftCollection(collection) => {
+            let supply = collection.token_ids.len() as u32;
+
             // create msgs for transfering NFTs to recipient
             transfer_nft_msgs(msgs, recipient, collection.collection_address, collection.token_ids)?;
+
+            supply
         }
         WheelReward::FungibleToken(token) => {
+            let total_amount = token.amount.checked_mul(Uint128::from(token.number as u128)).unwrap();
+
             // create msg for transfering fungible token to recipient
-            transfer_token_msg(msgs, recipient, token.token_address, token.amount)?;
+            transfer_token_msg(msgs, recipient, token.token_address, total_amount)?;
+
+            token.number
         }
         WheelReward::Coin(coin) => {
-            // send token to recipient
-            let send_msg = send_coin_msg(recipient, vec![coin.coin])?;
-            msgs.push(send_msg);
-        }
-        WheelReward::Text(_text) => {}
-    }
+            let total_coin = Coin{
+                denom: coin.coin.denom,
+                amount: coin.coin.amount.checked_mul(Uint128::from(coin.number as u128)).unwrap()
+            };
 
-    Ok(())
+            // send token to recipient
+            let send_msg = send_coin_msg(recipient, vec![total_coin])?;
+            msgs.push(send_msg);
+
+            coin.number
+        }
+        WheelReward::Text(text) => {
+            text.number
+        }
+    };
+
+    Ok(removed_supply)
 }
 
 fn transfer_nft_msgs(
@@ -916,7 +959,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
 
 fn get_wheel_rewards(
     deps: Deps
-) -> StdResult<Vec<WheelReward>> {
+) -> StdResult<(u32, Vec<WheelReward>)> {
     WHEEL_REWARDS.load(deps.storage)
 }
 
