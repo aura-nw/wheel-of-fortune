@@ -420,6 +420,7 @@ pub fn spin(
 
     let spinned_result = WHITELIST.may_load(deps.storage, info.sender.clone())?;
 
+    // If the wheel is private, only the whitelist is allowed to spin
     if !config.is_public && spinned_result.is_none() {
         return Err(ContractError::Unauthorized {});
     } 
@@ -463,6 +464,7 @@ pub fn spin(
 
         let job_id = format!("{}/{}", info.sender, spinned);
 
+        // Make randomness request message to NOIS proxy contract
         let msg = CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: config.nois_proxy.into(),
             msg: to_binary(&ProxyExecuteMsg::GetNextRandomness { 
@@ -470,6 +472,7 @@ pub fn spin(
             funds: coins(config.fee.nois_fee.u128(), config.fee.denom),
         });
 
+        // save job for mapping callback response to request
         let random_job = RandomJob { 
             player: info.sender.clone(), 
             spins 
@@ -492,6 +495,7 @@ pub fn spin(
         // select rewards for player
         let new_random_seed = select_wheel_rewards(deps.storage, info.sender.clone(), random_seed, key, spins)?;
 
+        // update new random seed
         RANDOM_SEED.save(deps.storage, &new_random_seed)?;
 
         return Ok(Response::new().add_attribute("action", "spin")
@@ -755,6 +759,7 @@ fn select_wheel_rewards(
 
     let mut spins_result = SPINS_RESULT.load(storage, player.clone())?;
 
+    // generate weighted list for wheel rewards
     let mut list_weighted: Vec<(usize, u32)> = Vec::with_capacity(wheel_rewards.len());
     for idx in 0..wheel_rewards.len() {
 
@@ -772,29 +777,33 @@ fn select_wheel_rewards(
         // random a new randomness
         randomness = provider.provide();
 
-        let reward_idx: usize = select_from_weighted(randomness, &list_weighted).unwrap();
+        // randomly selecting an element from a weighted list
+        let slot_idx: usize = select_from_weighted(randomness, &list_weighted).unwrap();
 
         // update weighted
-        list_weighted[reward_idx].1 -= 1;
+        list_weighted[slot_idx].1 -= 1;
 
         // save spins result and update wheel rewards
-        match wheel_rewards[reward_idx].clone() {
+        match wheel_rewards[slot_idx].clone() {
             WheelReward::NftCollection(mut collection) => {
                 // get random nft in collection
                 let id_idx = int_in_range(randomness, 0, collection.token_ids.len() - 1);
                 
+                // spin result with nft of index id_idx as reward
                 let reward = WheelReward::NftCollection(CollectionReward { 
                     label: collection.label.clone(), 
                     collection_address: collection.collection_address.clone(), 
                     token_ids: vec![collection.token_ids.swap_remove(id_idx)] 
                 });
 
-                wheel_rewards[reward_idx] = WheelReward::NftCollection(collection);
+                // update rewards of slot
+                wheel_rewards[slot_idx] = WheelReward::NftCollection(collection);
 
                 spins_result.push((false, reward));
             }
 
             WheelReward::FungibleToken(mut token) => {
+                // spin result with token as reward
                 let reward = WheelReward::FungibleToken(TokenReward { 
                     label: token.label.clone(), 
                     token_address: token.token_address.clone(), 
@@ -804,12 +813,13 @@ fn select_wheel_rewards(
 
                 token.number -= 1;
                 
-                wheel_rewards[reward_idx] = WheelReward::FungibleToken(token);
+                wheel_rewards[slot_idx] = WheelReward::FungibleToken(token);
 
                 spins_result.push((false, reward));
             }
 
             WheelReward::Coin(mut coin) => {
+                 // spin result with coin as reward
                 let reward = WheelReward::Coin(CoinReward { 
                     label: coin.label.clone(), 
                     coin: coin.coin.clone(), 
@@ -818,12 +828,13 @@ fn select_wheel_rewards(
 
                 coin.number -= 1;
 
-                wheel_rewards[reward_idx] = WheelReward::Coin(coin);
+                wheel_rewards[slot_idx] = WheelReward::Coin(coin);
 
                 spins_result.push((false, reward));
             }
 
             WheelReward::Text(mut text) => {
+                 // spin result with text as reward
                 let reward = WheelReward::Text(TextReward { 
                     label: text.label.clone(), 
                     number: 1 
@@ -831,7 +842,7 @@ fn select_wheel_rewards(
 
                 text.number -= 1;
                 
-                wheel_rewards[reward_idx] = WheelReward::Text(text);
+                wheel_rewards[slot_idx] = WheelReward::Text(text);
 
                 spins_result.push((false, reward));
             }
@@ -890,6 +901,8 @@ fn withdraw_reward_msgs(
     Ok(removed_supply)
 }
 
+
+/// Generate messages for transfering nfts 
 fn transfer_nft_msgs(
     msgs: &mut Vec<CosmosMsg>,
     recipient: String,
@@ -897,9 +910,8 @@ fn transfer_nft_msgs(
     token_ids: Vec<String>
 ) -> Result<(), ContractError> {
     for token_id in token_ids {
-        // transfer NFT to this contract
         let transfer_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: contract_addr.clone(),
+            contract_addr: contract_addr.clone(), // nft contract
             msg: to_binary(&CW721ExecuteMsg::<CW721Extension,CW721Extension>::TransferNft {
                 recipient: recipient.clone(), 
                 token_id
@@ -912,6 +924,7 @@ fn transfer_nft_msgs(
     Ok(())
 }
 
+/// generate message for transfering fungible token
 fn transfer_token_msg(
     msgs: &mut Vec<CosmosMsg>,
     recipient: String,
@@ -920,7 +933,7 @@ fn transfer_token_msg(
 ) -> Result<(), ContractError> {
 
     let transfer_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr,
+        contract_addr, // fungible token contract 
         msg: to_binary(&Cw20ExecuteMsg::Transfer { 
             recipient, 
             amount
@@ -933,6 +946,7 @@ fn transfer_token_msg(
     Ok(())
 }
 
+/// generate message for send coin
 fn send_coin_msg(
     recipient: String,
     amount: Vec<Coin>
