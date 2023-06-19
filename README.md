@@ -10,10 +10,13 @@
 
 </br>
 
-```
+```Javascript
 git clone https://github.com/aura-nw/aura.git
 cd aura
 ignite chain serve -v
+
+// lcd: localhost:1337
+// rpc: localhost:26657
 ```
 
 </br>
