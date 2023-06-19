@@ -182,6 +182,7 @@ fn add_collection_reward(
 fn add_token_reward(
     wheel_rewards: &mut Vec<WheelReward>,
     msgs: &mut Vec<CosmosMsg>,
+    owner: String,
     recipient: String,
     token: TokenReward
 ) -> Result<(), ContractError> {
@@ -190,10 +191,11 @@ fn add_token_reward(
         return Err(ContractError::TextTooLong {});
     }
 
-    let total_amount = token.amount.checked_mul(Uint128::from(token.number as u128)).unwrap();
+    let total_amount = checked_u128_mul_u32(token.amount, token.number);
 
-    transfer_token_msg(
+    transfer_from_token_msg(
         msgs, 
+        owner,
         recipient, 
         token.token_address.clone(), 
         total_amount
@@ -214,7 +216,7 @@ fn add_coin_reward(
         return Err(ContractError::TextTooLong {});
     }
 
-    let total_amount = coin.coin.amount.checked_mul(Uint128::from(coin.number as u128)).unwrap();
+    let total_amount = checked_u128_mul_u32(coin.coin.amount, coin.number);
         
     if !has_coin(funds, coin.coin.denom.clone(), total_amount) {
         return Err(ContractError::InsufficentFund {});
@@ -247,7 +249,7 @@ pub fn add_reward(
 ) -> Result<Response, ContractError> {
 
     // check if wheel is not activated and sender is contract admin
-    is_not_activate_and_owned(deps.storage, info.sender)?;
+    is_not_activate_and_owned(deps.storage, info.sender.clone())?;
 
     // list rewards of the wheel
     let (mut supply, mut wheel_rewards) = WHEEL_REWARDS.load(deps.storage)?;
@@ -277,7 +279,7 @@ pub fn add_reward(
             supply = checked_add_supply(supply, token.number)?;
 
             // add token to wheel rewards list
-            add_token_reward(wheel_rewards.as_mut(), msgs.as_mut(), env.contract.address.to_string(), token)?;
+            add_token_reward(wheel_rewards.as_mut(), msgs.as_mut(), info.sender.to_string(), env.contract.address.to_string(), token)?;
         }
         WheelReward::Coin(coin) => {
             // increase wheel's total reward supply
@@ -441,7 +443,7 @@ pub fn spin(
 
     let spinned = spinned_result.unwrap_or(0);
 
-    let mut total_amount = config.fee.spin_price.checked_mul(Uint128::from(spins as u128)).unwrap();
+    let mut total_amount = checked_u128_mul_u32(config.fee.spin_price, spins);
 
     // if contract using advanced randomness mode, player must pay for nois randomness request
     if config.is_advanced_randomness {
@@ -710,6 +712,10 @@ fn checked_add_supply(supply: u32, inc: u32) -> Result<u32, ContractError> {
     supply.checked_add(inc).ok_or_else(|| ContractError::TooManyRewards {})
 }
 
+fn checked_u128_mul_u32(a: Uint128, b: u32) -> Uint128 {
+    a.checked_mul(Uint128::from(b as u128)).unwrap()
+}
+
 /// check if funds and required amount is equal
 fn has_coin(
     funds: Vec<Coin>,
@@ -877,7 +883,7 @@ fn withdraw_reward_msgs(
             supply
         }
         WheelReward::FungibleToken(token) => {
-            let total_amount = token.amount.checked_mul(Uint128::from(token.number as u128)).unwrap();
+            let total_amount = checked_u128_mul_u32(token.amount, token.number);
 
             // create msg for transfering fungible token to recipient
             transfer_token_msg(msgs, recipient, token.token_address, total_amount)?;
@@ -887,7 +893,7 @@ fn withdraw_reward_msgs(
         WheelReward::Coin(coin) => {
             let total_coin = Coin{
                 denom: coin.coin.denom,
-                amount: coin.coin.amount.checked_mul(Uint128::from(coin.number as u128)).unwrap()
+                amount: checked_u128_mul_u32(coin.coin.amount, coin.number)
             };
 
             // send token to recipient
@@ -945,6 +951,30 @@ fn transfer_token_msg(
     });
 
     msgs.push(transfer_msg);
+
+    Ok(())
+}
+
+/// generate message for transfering fungible token from owner
+fn transfer_from_token_msg(
+    msgs: &mut Vec<CosmosMsg>,
+    owner: String,
+    recipient: String,
+    contract_addr: String,
+    amount: Uint128
+) -> Result<(), ContractError> {
+
+    let transfer_from_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr, // fungible token contract 
+        msg: to_binary(&Cw20ExecuteMsg::TransferFrom { 
+            owner,
+            recipient, 
+            amount
+        })?,
+        funds: vec![],
+    });
+
+    msgs.push(transfer_from_msg);
 
     Ok(())
 }
