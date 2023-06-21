@@ -1,0 +1,2 @@
+d7ca37d8f67e4be0710833748635c0731c5e3b738403123cde42b5c1b1c09aeb  ./target/wasm32-unknown-unknown/release/cw721_reward.wasm
+e341bd9a0b1d67d9cf7e01ebd73d362ef0f1cd6e3330336a847d03c17786dba5  ./target/wasm32-unknown-unknown/release/wheel_of_fortune.wasm

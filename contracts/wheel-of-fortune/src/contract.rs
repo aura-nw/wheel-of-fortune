@@ -156,8 +156,8 @@ pub fn remove_whitelist(
 
 fn add_collection_reward(
     wheel_rewards: &mut Vec<WheelReward>,
-    msgs: &mut Vec<CosmosMsg>,
-    recipient: String,
+    _msgs: &mut Vec<CosmosMsg>,
+    _recipient: String,
     collection: CollectionReward
 ) -> Result<(), ContractError> {
     
@@ -169,13 +169,6 @@ fn add_collection_reward(
         return Err(ContractError::TextTooLong {});
     }
 
-    transfer_nft_msgs(
-        msgs, 
-        recipient, 
-        collection.collection_address.clone(), 
-        collection.token_ids.clone()
-    )?;
-
     wheel_rewards.push(WheelReward::NftCollection(collection));
 
     Ok(())
@@ -183,23 +176,14 @@ fn add_collection_reward(
 
 fn add_token_reward(
     wheel_rewards: &mut Vec<WheelReward>,
-    msgs: &mut Vec<CosmosMsg>,
-    recipient: String,
+    _msgs: &mut Vec<CosmosMsg>,
+    _recipient: String,
     token: TokenReward
 ) -> Result<(), ContractError> {
 
     if token.label.len() > MAX_TEXT_LENGTH {
         return Err(ContractError::TextTooLong {});
     }
-
-    let total_amount = token.amount.checked_mul(Uint128::from(token.number as u128)).unwrap();
-
-    transfer_token_msg(
-        msgs, 
-        recipient, 
-        token.token_address.clone(), 
-        total_amount
-    )?;
 
     wheel_rewards.push(WheelReward::FungibleToken(token));
 
@@ -208,18 +192,12 @@ fn add_token_reward(
 
 fn add_coin_reward(
     wheel_rewards: &mut Vec<WheelReward>,
-    funds: Vec<Coin>,
+    _funds: Vec<Coin>,
     coin: CoinReward
 ) -> Result<(), ContractError> {
 
     if coin.label.len() > MAX_TEXT_LENGTH {
         return Err(ContractError::TextTooLong {});
-    }
-
-    let total_amount = coin.coin.amount.checked_mul(Uint128::from(coin.number as u128)).unwrap();
-        
-    if !has_coin(funds, coin.coin.denom.clone(), total_amount) {
-        return Err(ContractError::InsufficentFund {});
     }
 
     wheel_rewards.push(WheelReward::Coin(coin));
@@ -939,8 +917,8 @@ fn get_player_rewards(
 ) -> StdResult<Vec<(bool, WheelReward)>> {
     let result = SPINS_RESULT.load(deps.storage, Addr::unchecked(address)).unwrap();
     let start = start.unwrap_or(0) as usize;
-    let count = count.unwrap_or(result.len() as u32) as usize;
-    let vec = result.get(start..count).unwrap();
+    let count = count.unwrap_or((result.len() - start) as u32) as usize;
+    let vec = result.get(start..(start + count)).unwrap();
     return Ok((*vec).to_vec())
 }
 
