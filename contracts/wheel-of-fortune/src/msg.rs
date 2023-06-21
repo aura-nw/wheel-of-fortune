@@ -86,8 +86,12 @@ pub enum QueryMsg {
     #[returns(Vec<WheelReward>)]
     GetWheelRewards{},
 
-    #[returns(Option<Vec<(bool, WheelReward)>>)]
-    GetPlayerRewards{address: String},
+    #[returns(Vec<(bool, WheelReward)>)]
+    GetPlayerRewards{
+        address: String,
+        start: Option<u32>,
+        count: Option<u32>
+    },
 
     #[returns(Option<u32>)]
     GetPlayerSpinned{address: String},

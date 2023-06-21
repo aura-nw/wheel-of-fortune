@@ -1,3 +1,5 @@
+use std::num::NonZeroI128;
+
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
@@ -246,8 +248,10 @@ pub fn add_reward(
     reward: WheelReward
 ) -> Result<Response, ContractError> {
 
-    // check if wheel is not activated and sender is contract admin
-    is_not_activate_and_owned(deps.storage, info.sender)?;
+    let admin_config = ADMIN_CONFIG.load(deps.storage)?;
+    if admin_config.admin != info.sender {
+        return Err(ContractError::Unauthorized {});
+    }
 
     // list rewards of the wheel
     let (mut supply, mut wheel_rewards) = WHEEL_REWARDS.load(deps.storage)?;
@@ -310,9 +314,6 @@ fn remove_reward(
     info: MessageInfo,
     slot: u32
 ) -> Result<Response, ContractError> {
-
-    // check if wheel is not activated and sender is contract admin
-    is_not_activate_and_owned(deps.storage, info.sender.clone())?;
 
     // list rewards of the wheel
     let (supply, mut wheel_rewards) = WHEEL_REWARDS.load(deps.storage)?;
@@ -413,7 +414,7 @@ pub fn spin(
     // Check if the wheel has enough rewards
     // In basic random mode, this check is unnecessary because NOIS function `selected_from_weighted` has checkpoint for this situation
     // But in advanced random mode, we need this to ensure reward always sufficient
-    let (supply, wheel_rewards) = WHEEL_REWARDS.load(deps.storage)?;
+    let (supply, _) = WHEEL_REWARDS.load(deps.storage)?;
     if supply < spins {
         return Err(ContractError::InsufficentReward {});
     }
@@ -459,9 +460,6 @@ pub fn spin(
     }
 
     WHITELIST.save(deps.storage, info.sender.clone(), &(spinned + spins))?;
-
-    // update wheel's total reward supply
-    WHEEL_REWARDS.save(deps.storage, &(supply - spins, wheel_rewards))?;
 
     if config.is_advanced_randomness {
 
@@ -526,14 +524,9 @@ pub fn claim_reward(
             return Err(ContractError::PlayerNotFound {});
         };
 
-    let mut msgs: Vec<CosmosMsg> = Vec::new();
-
     for idx in rewards {
-        if let Some((is_claimed, reward)) = spins_result.get(idx as usize){
+        if let Some((is_claimed, _)) = spins_result.get(idx as usize){
             if !is_claimed {
-
-                withdraw_reward_msgs(reward.to_owned(), info.sender.to_string(), msgs.as_mut())?;
-
                 spins_result[idx as usize].0 = true;       
             }
         }
@@ -542,14 +535,8 @@ pub fn claim_reward(
     // update player reward
     SPINS_RESULT.save(deps.storage, info.sender.clone(), &spins_result)?;
 
-    if msgs.len() > 0 {
-        Ok(Response::new().add_attribute("action", "claim_reward")
-            .add_attribute("sender", info.sender)
-            .add_messages(msgs))
-    }else {
-        Ok(Response::new().add_attribute("action", "claim_reward")
-            .add_attribute("sender", info.sender))
-    }
+    Ok(Response::new().add_attribute("action", "claim_reward")
+        .add_attribute("sender", info.sender))
 }
 
 pub fn withdraw(
@@ -562,11 +549,6 @@ pub fn withdraw(
 
     // check if wheel is activated and sender is contract admin
     is_activate_and_owned(deps.storage, info.sender.clone())?;
-    
-    let config = CONFIG.load(deps.storage)?;
-    if config.end_time.unwrap() >= env.block.time {
-        return Err(ContractError::WheelNotEnded {});
-    }
 
     // get the balance of contract in bank
     let contract_balance: BalanceResponse =
@@ -602,11 +584,6 @@ pub fn withdraw_nft(
 
     // check if wheel is activated and sender is contract admin
     is_activate_and_owned(deps.storage, info.sender.clone())?;
-    
-    let config = CONFIG.load(deps.storage)?;
-    if config.end_time.unwrap() >= env.block.time {
-        return Err(ContractError::WheelNotEnded {});
-    }
 
     let recipient = recipient.unwrap_or(info.sender.to_string());
 
@@ -631,11 +608,6 @@ pub fn withdraw_token(
 
     // check if wheel is activated and sender is contract admin
     is_activate_and_owned(deps.storage, info.sender.clone())?;
-    
-    let config = CONFIG.load(deps.storage)?;
-    if config.end_time.unwrap() >= env.block.time {
-        return Err(ContractError::WheelNotEnded {});
-    }
 
     let recipient = recipient.unwrap_or(info.sender.to_string());
 
@@ -758,7 +730,7 @@ fn select_wheel_rewards(
     spins: u32
 ) -> Result<[u8; 32], ContractError> {
 
-    let (supply, mut wheel_rewards) = WHEEL_REWARDS.load(storage)?;
+    let (_, wheel_rewards) = WHEEL_REWARDS.load(storage)?;
 
     let mut spins_result = SPINS_RESULT.load(storage, player.clone())?;
 
@@ -783,69 +755,51 @@ fn select_wheel_rewards(
         // randomly selecting an element from a weighted list
         let slot_idx: usize = select_from_weighted(randomness, &list_weighted).unwrap();
 
-        // update weighted
-        list_weighted[slot_idx].1 -= 1;
-
         // save spins result and update wheel rewards
         match wheel_rewards[slot_idx].clone() {
-            WheelReward::NftCollection(mut collection) => {
+            WheelReward::NftCollection(collection) => {
                 // get random nft in collection
                 let id_idx = int_in_range(randomness, 0, collection.token_ids.len() - 1);
                 
                 // spin result with nft of index id_idx as reward
                 let reward = WheelReward::NftCollection(CollectionReward { 
-                    label: collection.label.clone(), 
-                    collection_address: collection.collection_address.clone(), 
-                    token_ids: vec![collection.token_ids.swap_remove(id_idx)] 
+                    label: collection.label, 
+                    collection_address: collection.collection_address, 
+                    token_ids: vec![collection.token_ids[id_idx].clone()] 
                 });
-
-                // update rewards of slot
-                wheel_rewards[slot_idx] = WheelReward::NftCollection(collection);
 
                 spins_result.push((false, reward));
             }
 
-            WheelReward::FungibleToken(mut token) => {
+            WheelReward::FungibleToken(token) => {
                 // spin result with token as reward
                 let reward = WheelReward::FungibleToken(TokenReward { 
-                    label: token.label.clone(), 
-                    token_address: token.token_address.clone(), 
+                    label: token.label, 
+                    token_address: token.token_address, 
                     amount: token.amount, 
                     number: 1 
                 });
 
-                token.number -= 1;
-                
-                wheel_rewards[slot_idx] = WheelReward::FungibleToken(token);
-
                 spins_result.push((false, reward));
             }
 
-            WheelReward::Coin(mut coin) => {
+            WheelReward::Coin(coin) => {
                  // spin result with coin as reward
                 let reward = WheelReward::Coin(CoinReward { 
-                    label: coin.label.clone(), 
-                    coin: coin.coin.clone(), 
+                    label: coin.label, 
+                    coin: coin.coin, 
                     number: 1 
                 });
-
-                coin.number -= 1;
-
-                wheel_rewards[slot_idx] = WheelReward::Coin(coin);
 
                 spins_result.push((false, reward));
             }
 
-            WheelReward::Text(mut text) => {
+            WheelReward::Text(text) => {
                  // spin result with text as reward
                 let reward = WheelReward::Text(TextReward { 
-                    label: text.label.clone(), 
+                    label: text.label, 
                     number: 1 
                 });
-
-                text.number -= 1;
-                
-                wheel_rewards[slot_idx] = WheelReward::Text(text);
 
                 spins_result.push((false, reward));
             }
@@ -854,9 +808,6 @@ fn select_wheel_rewards(
     
     // update spins result
     SPINS_RESULT.save(storage, player, &spins_result)?;
-
-    // update wheel rewards
-    WHEEL_REWARDS.save(storage, &(supply, wheel_rewards))?;
 
     Ok(randomness)
 }
@@ -967,7 +918,7 @@ fn send_coin_msg(
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::GetWheelRewards{} => to_binary(&get_wheel_rewards(deps)?),
-        QueryMsg::GetPlayerRewards{address} => to_binary(&get_player_rewards(deps, address)?),
+        QueryMsg::GetPlayerRewards{address, start, count} => to_binary(&get_player_rewards(deps, address, start, count)?),
         QueryMsg::GetPlayerSpinned{address} => to_binary(&get_player_spinned(deps, address)?),
         QueryMsg::GetWheelConfig {} => to_binary(&get_wheel_config(deps)?),
         QueryMsg::Spinnable {address} => to_binary(&spinnable(deps, env, address)?)
@@ -982,9 +933,15 @@ fn get_wheel_rewards(
 
 fn get_player_rewards(
     deps: Deps,
-    address: String
-) -> StdResult<Option<Vec<(bool, WheelReward)>>> {
-    SPINS_RESULT.may_load(deps.storage, Addr::unchecked(address))
+    address: String,
+    start: Option<u32>,
+    count: Option<u32>
+) -> StdResult<Vec<(bool, WheelReward)>> {
+    let result = SPINS_RESULT.load(deps.storage, Addr::unchecked(address)).unwrap();
+    let start = start.unwrap_or(0) as usize;
+    let count = count.unwrap_or(result.len() as u32) as usize;
+    let vec = result.get(start..count).unwrap();
+    return Ok((*vec).to_vec())
 }
 
 fn get_player_spinned(
