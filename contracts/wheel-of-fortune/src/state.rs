@@ -19,7 +19,6 @@ impl UserFee {
     }
 }
 
-
 #[cw_serde]
 pub struct Config {
     pub wheel_name: String,
@@ -96,7 +95,7 @@ impl WheelReward {
         }
     }
 }
-pub const WHEEL_REWARDS: Item<Vec<WheelReward>> = Item::new("wheel rewards");
+pub const WHEEL_REWARDS: Item<(u32, Vec<WheelReward>)> = Item::new("wheel rewards");
 
 #[cw_serde]
 pub struct RandomJob {

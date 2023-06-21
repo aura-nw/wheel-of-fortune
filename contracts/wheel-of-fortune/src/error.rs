@@ -12,6 +12,9 @@ pub enum ContractError {
     #[error("Invalid address")]
     InvalidAddress {},
     
+    #[error("Insufficent reward")]
+    InsufficentReward {},
+
     #[error("Text too long")]
     TextTooLong {},
 
@@ -44,6 +47,9 @@ pub enum ContractError {
 
     #[error("Too many nfts")]
     TooManyNfts {},
+
+    #[error("Too many slots")]
+    TooManySlots {},
 
     #[error("Too many rewards")]
     TooManyRewards {},

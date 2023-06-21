@@ -8,7 +8,7 @@ mod unit_tests {
 
     use crate::error::ContractError;
     use crate::msg::{InstantiateMsg, ExecuteMsg};
-    use crate::state::{ADMIN_CONFIG, AdminConfig, WheelReward, TextReward, CoinReward, TokenReward, CollectionReward, WHEEL_REWARDS, UserFee};
+    use crate::state::{ADMIN_CONFIG, AdminConfig, WheelReward, TextReward, CoinReward, TokenReward, CollectionReward, WHEEL_REWARDS, UserFee, WHITELIST};
 
     use cosmwasm_std::testing::{
         mock_dependencies, mock_env, mock_info, MockApi, MockQuerier, MockStorage,
@@ -733,4 +733,233 @@ mod unit_tests {
         }
     }
 
+    /* ============================================================ Withdraw  ======================================================================== */
+    #[test]
+    fn withdraw_native_coin_fail_with_wheel_not_activated(){
+        let mut deps = default_setup();
+
+        ADMIN_CONFIG.save(deps.as_mut().storage, &AdminConfig { 
+            admin: Addr::unchecked(CREATOR), 
+            // set activate to false
+            activate: false 
+        }).unwrap();
+
+        let env = env_with_specify(Timestamp::from_seconds(15000), 1);
+
+        let withdraw_native_coin = ExecuteMsg::Withdraw { 
+            recipient: Some("recipient".to_string()), 
+            denom: "uaura".to_string()
+        };
+
+        let res = execute(deps.as_mut(), env, mock_info(CREATOR, &[]), withdraw_native_coin).unwrap_err();
+        match res {
+            ContractError::WheelNotActivated {} => {}
+            _ => panic!()
+        }
+    }
+
+    #[test]
+    fn withdraw_native_coin_fail_with_unauthorized(){
+        let mut deps = default_setup();
+
+        ADMIN_CONFIG.save(deps.as_mut().storage, &AdminConfig { 
+            admin: Addr::unchecked(CREATOR), 
+            // set activate to true
+            activate: true 
+        }).unwrap();
+
+        let env = env_with_specify(Timestamp::from_seconds(15000), 1);
+
+        let withdraw_native_coin = ExecuteMsg::Withdraw { 
+            recipient: Some("recipient".to_string()), 
+            denom: "uaura".to_string()
+        };
+
+        let res = execute(deps.as_mut(), env, mock_info(USER, &[]), withdraw_native_coin).unwrap_err();
+        match res {
+            ContractError::Unauthorized {} => {}
+            _ => panic!()
+        }
+    }
+
+    #[test]
+    fn withdraw_native_coin_fail_with_wheel_not_end(){
+        let mut deps = default_setup();
+
+        ADMIN_CONFIG.save(deps.as_mut().storage, &AdminConfig { 
+            admin: Addr::unchecked(CREATOR), 
+            // set activate to true
+            activate: false 
+        }).unwrap();
+
+        let env = env_with_specify(Timestamp::from_seconds(15000), 1);
+
+        let activate_wheel = ExecuteMsg::ActivateWheel { 
+            fee: UserFee { 
+                denom: "uaura".to_string(), 
+                spin_price: Uint128::from(1000u128), 
+                nois_fee: Uint128::from(300u128) 
+            }, 
+            start_time: Some(Timestamp::from_seconds(10000)), 
+            end_time: Timestamp::from_seconds(20000) 
+        };
+
+        execute(deps.as_mut(), env.clone(), mock_info(CREATOR, &[]), activate_wheel);
+        
+        let withdraw_native_coin = ExecuteMsg::Withdraw { 
+            recipient: Some("recipient".to_string()), 
+            denom: "uaura".to_string()
+        };
+
+        let res = execute(deps.as_mut(), env, mock_info(CREATOR, &[]), withdraw_native_coin).unwrap_err();
+        match res {
+            ContractError::Unauthorized {} => {}
+            _ => panic!()
+        }
+    }
+
+
+    /* ============================================================ Spin  ======================================================================== */
+    #[test]
+    fn spin_fail_with_wheel_not_activated(){
+        let mut deps = default_setup();
+
+        ADMIN_CONFIG.save(deps.as_mut().storage, &AdminConfig { 
+            admin: Addr::unchecked(CREATOR), 
+            // set activate to false
+            activate: false 
+        }).unwrap();
+
+        let env = env_with_specify(Timestamp::from_seconds(15000), 1);
+
+        let spin_msg = ExecuteMsg::Spin { number: Some(5) };
+
+        let res = execute(deps.as_mut(), env, mock_info(USER, &[]), spin_msg).unwrap_err();
+        match res {
+            ContractError::WheelNotActivated {} => {}
+            _ => panic!()
+        }
+    }
+
+    #[test]
+    fn spin_fail_with_spin_amount_larger_than_config(){
+        let mut deps = default_setup();
+
+        ADMIN_CONFIG.save(deps.as_mut().storage, &AdminConfig { 
+            admin: Addr::unchecked(CREATOR), 
+            // set activate to false
+            activate: true 
+        }).unwrap();
+
+        let env = env_with_specify(Timestamp::from_seconds(15000), 1);
+
+        let spin_msg = ExecuteMsg::Spin { number: Some(11) };
+
+        let res = execute(deps.as_mut(), env, mock_info(USER, &[]), spin_msg).unwrap_err();
+        match res {
+            ContractError::InvalidNumberSpins {} => {}
+            _ => panic!()
+        }
+    }
+
+    #[test]
+    fn spin_fail_with_start_time_larger_than_current(){
+        let mut deps = default_setup();
+
+        ADMIN_CONFIG.save(deps.as_mut().storage, &AdminConfig { 
+            admin: Addr::unchecked(CREATOR), 
+            // set activate to false
+            activate: true ,
+        }).unwrap();
+
+        let env = env_with_specify(Timestamp::from_seconds(15000), 1);
+
+        let activate_wheel = ExecuteMsg::ActivateWheel { 
+            fee: UserFee { 
+                denom: "uaura".to_string(), 
+                spin_price: Uint128::from(1000u128), 
+                nois_fee: Uint128::from(300u128) 
+            }, 
+            start_time: Some(Timestamp::from_seconds(20000)), 
+            end_time: Timestamp::from_seconds(40000) 
+        };
+
+        execute(deps.as_mut(), env.clone(), mock_info(CREATOR, &[]), activate_wheel);
+
+        let spin_msg = ExecuteMsg::Spin { number: Some(11) };
+
+        let res = execute(deps.as_mut(), env.clone(), mock_info(USER, &[]), spin_msg).unwrap_err();
+        match res {
+            ContractError::InvalidNumberSpins {} => {}
+            _ => panic!()
+        }
+    }
+
+    #[test]
+    fn spin_fail_with_current_larger_than_end_time(){
+        let mut deps = default_setup();
+
+        ADMIN_CONFIG.save(deps.as_mut().storage, &AdminConfig { 
+            admin: Addr::unchecked(CREATOR), 
+            // set activate to false
+            activate: true ,
+        }).unwrap();
+
+        let env = env_with_specify(Timestamp::from_seconds(50000), 1);
+
+        let activate_wheel = ExecuteMsg::ActivateWheel { 
+            fee: UserFee { 
+                denom: "uaura".to_string(), 
+                spin_price: Uint128::from(1000u128), 
+                nois_fee: Uint128::from(300u128) 
+            }, 
+            start_time: Some(Timestamp::from_seconds(20000)), 
+            end_time: Timestamp::from_seconds(40000) 
+        };
+
+        execute(deps.as_mut(), env.clone(), mock_info(CREATOR, &[]), activate_wheel);
+
+        let spin_msg = ExecuteMsg::Spin { number: Some(11) };
+
+        let res = execute(deps.as_mut(), env.clone(), mock_info(USER, &[]), spin_msg).unwrap_err();
+        match res {
+            ContractError::WheelEnded {} => {}
+            _ => panic!()
+        }
+    }
+
+    #[test]
+    fn spin_fail_with_spin_amount_larger_than_avaiable(){
+        let mut deps = default_setup();
+
+        ADMIN_CONFIG.save(deps.as_mut().storage, &AdminConfig { 
+            admin: Addr::unchecked(CREATOR), 
+            // set activate to false
+            activate: true ,
+        }).unwrap();
+
+        let env = env_with_specify(Timestamp::from_seconds(15000), 1);
+
+//        WHITELIST.save(deps.as_mut(), Addr::unchecked(USER), &u32::);
+
+        let activate_wheel = ExecuteMsg::ActivateWheel { 
+            fee: UserFee { 
+                denom: "uaura".to_string(), 
+                spin_price: Uint128::from(1000u128), 
+                nois_fee: Uint128::from(300u128) 
+            }, 
+            start_time: Some(Timestamp::from_seconds(10000)), 
+            end_time: Timestamp::from_seconds(40000) 
+        };
+
+        execute(deps.as_mut(), env.clone(), mock_info(CREATOR, &[]), activate_wheel);
+
+        let spin_msg = ExecuteMsg::Spin { number: Some(11) };
+
+        let res = execute(deps.as_mut(), env.clone(), mock_info(USER, &[]), spin_msg).unwrap_err();
+        match res {
+            ContractError::InvalidNumberSpins {} => {}
+            _ => panic!()
+        }
+    }
 }

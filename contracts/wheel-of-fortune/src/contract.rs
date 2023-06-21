@@ -19,7 +19,8 @@ use crate::state::{
 
 use nois::{
     randomness_from_str, NoisCallback, select_from_weighted,
-    ProxyExecuteMsg, sub_randomness_with_key
+    ProxyExecuteMsg, sub_randomness_with_key, shuffle as nois_shuffle,
+    int_in_range
 };
 
 // version info for migration info
@@ -73,7 +74,7 @@ pub fn instantiate(
     let randomness = randomness_from_str(msg.random_seed).unwrap();
     RANDOM_SEED.save(deps.storage, &randomness)?;
 
-    WHEEL_REWARDS.save(deps.storage, &Vec::new())?;
+    WHEEL_REWARDS.save(deps.storage, &(0u32, Vec::new()))?;
 
     Ok(Response::new()
         .add_attribute("method", "instantiate")
@@ -95,7 +96,7 @@ pub fn execute(
         ExecuteMsg::RemoveWhitelist { addresses } => remove_whitelist(deps, info, addresses),
         ExecuteMsg::AddReward { reward } => add_reward(deps, env, info, reward),
         ExecuteMsg::RemoveReward { slot } => remove_reward(deps, info, slot),
-        ExecuteMsg::ActivateWheel { fee, start_time, end_time } => activate_wheel(deps, env, info, fee, start_time, end_time),
+        ExecuteMsg::ActivateWheel { fee, start_time, end_time, shuffle } => activate_wheel(deps, env, info, fee, start_time, end_time, shuffle),
         ExecuteMsg::Withdraw { recipient, denom } => withdraw(deps, env, info, recipient, denom),
         ExecuteMsg::WithdrawNft { recipient, collection, token_ids } => withdraw_nft(deps, env, info, recipient, collection, token_ids),
         ExecuteMsg::WithdrawToken { recipient, token_address } => withdraw_token(deps, env, info, recipient, token_address),
@@ -181,6 +182,7 @@ fn add_collection_reward(
 fn add_token_reward(
     wheel_rewards: &mut Vec<WheelReward>,
     msgs: &mut Vec<CosmosMsg>,
+    owner: String,
     recipient: String,
     token: TokenReward
 ) -> Result<(), ContractError> {
@@ -189,10 +191,11 @@ fn add_token_reward(
         return Err(ContractError::TextTooLong {});
     }
 
-    let total_amount = token.amount.checked_mul(Uint128::from(token.number as u128)).unwrap();
+    let total_amount = checked_u128_mul_u32(token.amount, token.number);
 
-    transfer_token_msg(
+    transfer_from_token_msg(
         msgs, 
+        owner,
         recipient, 
         token.token_address.clone(), 
         total_amount
@@ -213,9 +216,9 @@ fn add_coin_reward(
         return Err(ContractError::TextTooLong {});
     }
 
-    let total_amount = coin.coin.amount.checked_mul(Uint128::from(coin.number as u128)).unwrap();
+    let total_amount = checked_u128_mul_u32(coin.coin.amount, coin.number);
         
-    if has_coin(funds, coin.coin.denom.clone(), total_amount) {
+    if !has_coin(funds, coin.coin.denom.clone(), total_amount) {
         return Err(ContractError::InsufficentFund {});
     }
 
@@ -246,37 +249,55 @@ pub fn add_reward(
 ) -> Result<Response, ContractError> {
 
     // check if wheel is not activated and sender is contract admin
-    is_not_activate_and_owned(deps.storage, info.sender)?;
+    is_not_activate_and_owned(deps.storage, info.sender.clone())?;
 
     // list rewards of the wheel
-    let mut wheel_rewards = WHEEL_REWARDS.load(deps.storage)?;
+    let (mut supply, mut wheel_rewards) = WHEEL_REWARDS.load(deps.storage)?;
 
     if wheel_rewards.len() >= MAX_VEC_ITEM {
-        return Err(ContractError::TooManyRewards {});
+        return Err(ContractError::TooManySlots {});
     }
 
     let mut msgs: Vec<CosmosMsg> = Vec::new();
 
     match reward {
         WheelReward::NftCollection(collection) => {
+            // validate collection contract address
+            addr_validate(deps.api, &collection.collection_address)?;
+
+            // increase wheel's total reward supply
+            supply = checked_add_supply(supply, collection.token_ids.len() as u32)?;
+
             // add collection to wheel rewards list
             add_collection_reward(wheel_rewards.as_mut(), msgs.as_mut(), env.contract.address.to_string(), collection)?;
         }
         WheelReward::FungibleToken(token) => {
+            // validate token contract address
+            addr_validate(deps.api, &token.token_address)?;
+
+            // increase wheel's total reward supply
+            supply = checked_add_supply(supply, token.number)?;
+
             // add token to wheel rewards list
-            add_token_reward(wheel_rewards.as_mut(), msgs.as_mut(), env.contract.address.to_string(), token)?;
+            add_token_reward(wheel_rewards.as_mut(), msgs.as_mut(), info.sender.to_string(), env.contract.address.to_string(), token)?;
         }
         WheelReward::Coin(coin) => {
+            // increase wheel's total reward supply
+            supply = checked_add_supply(supply, coin.number)?;
+
             // add coint to wheel rewards list
             add_coin_reward(wheel_rewards.as_mut(), info.funds, coin)?;
         }
         WheelReward::Text(text) => {
+            // increase wheel's total reward supply
+            supply = checked_add_supply(supply, text.number)?;
+
             // add text to wheel rewards list
             add_text_reward(wheel_rewards.as_mut(), text)?;
         }
     }
 
-    WHEEL_REWARDS.save(deps.storage, &wheel_rewards)?;
+    WHEEL_REWARDS.save(deps.storage, &(supply, wheel_rewards))?;
 
     if msgs.len() > 0 {
         Ok(Response::new().add_attribute("action", "add_rewards")
@@ -296,7 +317,7 @@ fn remove_reward(
     is_not_activate_and_owned(deps.storage, info.sender.clone())?;
 
     // list rewards of the wheel
-    let mut wheel_rewards = WHEEL_REWARDS.load(deps.storage)?;
+    let (supply, mut wheel_rewards) = WHEEL_REWARDS.load(deps.storage)?;
 
     // slot out of range
     if (slot as usize) >= wheel_rewards.len() {
@@ -308,10 +329,10 @@ fn remove_reward(
 
     let mut msgs: Vec<CosmosMsg> = Vec::new();
 
-    withdraw_reward_msgs(reward, info.sender.to_string(), msgs.as_mut())?;
+    let removed_supply = withdraw_reward_msgs(reward, info.sender.to_string(), msgs.as_mut())?;
 
     // update wheel rewards
-    WHEEL_REWARDS.save(deps.storage, &wheel_rewards)?;
+    WHEEL_REWARDS.save(deps.storage, &(supply - removed_supply, wheel_rewards))?;
 
     if msgs.len() > 0 {
         return Ok(Response::new().add_attribute("action", "remove_reward")
@@ -329,7 +350,8 @@ pub fn activate_wheel(
     info: MessageInfo,
     fee: UserFee,
     start_time: Option<Timestamp>,
-    end_time: Timestamp
+    end_time: Timestamp,
+    shuffle: Option<bool>
 ) -> Result<Response, ContractError> {
 
     // check if wheel is not activated and sender is contract admin
@@ -356,6 +378,18 @@ pub fn activate_wheel(
     config.end_time = Some(end_time);
     CONFIG.save(deps.storage, &config)?;
 
+    let shuffle = shuffle.unwrap_or(false);
+    // if required, shuffle wheel rewards
+    if shuffle {
+        let random_seend = RANDOM_SEED.load(deps.storage)?;
+        let (supply, wheel_rewards) = WHEEL_REWARDS.load(deps.storage)?;
+
+        let wheel_rewards_shuffled = nois_shuffle(random_seend, wheel_rewards);
+
+        // save rewards after shuffled
+        WHEEL_REWARDS.save(deps.storage, &(supply, wheel_rewards_shuffled))?;
+    }
+
     Ok(Response::new().add_attribute("action", "activate_wheel"))
 }
 
@@ -378,8 +412,17 @@ pub fn spin(
         return Err(ContractError::InvalidNumberSpins {});
     }
 
+    // Check if the wheel has enough rewards
+    // In basic random mode, this check is unnecessary because NOIS function `selected_from_weighted` has checkpoint for this situation
+    // But in advanced random mode, we need this to ensure reward always sufficient
+    let (supply, wheel_rewards) = WHEEL_REWARDS.load(deps.storage)?;
+    if supply < spins {
+        return Err(ContractError::InsufficentReward {});
+    }
+
     let spinned_result = WHITELIST.may_load(deps.storage, info.sender.clone())?;
 
+    // If the wheel is private, only the whitelist is allowed to spin
     if !config.is_public && spinned_result.is_none() {
         return Err(ContractError::Unauthorized {});
     } 
@@ -400,14 +443,14 @@ pub fn spin(
 
     let spinned = spinned_result.unwrap_or(0);
 
-    let mut total_amount = config.fee.spin_price.checked_mul(Uint128::from(spins as u128)).unwrap();
+    let mut total_amount = checked_u128_mul_u32(config.fee.spin_price, spins);
 
     // if contract using advanced randomness mode, player must pay for nois randomness request
     if config.is_advanced_randomness {
         total_amount = total_amount.checked_add(config.fee.nois_fee).unwrap();
     }
 
-    if has_coin(info.funds, config.fee.denom.clone(), total_amount) {
+    if !has_coin(info.funds, config.fee.denom.clone(), total_amount) {
         return Err(ContractError::InsufficentFund {});
     }
 
@@ -419,10 +462,14 @@ pub fn spin(
 
     WHITELIST.save(deps.storage, info.sender.clone(), &(spinned + spins))?;
 
+    // update wheel's total reward supply
+    WHEEL_REWARDS.save(deps.storage, &(supply - spins, wheel_rewards))?;
+
     if config.is_advanced_randomness {
 
         let job_id = format!("{}/{}", info.sender, spinned);
 
+        // Make randomness request message to NOIS proxy contract
         let msg = CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: config.nois_proxy.into(),
             msg: to_binary(&ProxyExecuteMsg::GetNextRandomness { 
@@ -430,6 +477,7 @@ pub fn spin(
             funds: coins(config.fee.nois_fee.u128(), config.fee.denom),
         });
 
+        // save job for mapping callback response to request
         let random_job = RandomJob { 
             player: info.sender.clone(), 
             spins 
@@ -452,6 +500,7 @@ pub fn spin(
         // select rewards for player
         let new_random_seed = select_wheel_rewards(deps.storage, info.sender.clone(), random_seed, key, spins)?;
 
+        // update new random seed
         RANDOM_SEED.save(deps.storage, &new_random_seed)?;
 
         return Ok(Response::new().add_attribute("action", "spin")
@@ -517,7 +566,7 @@ pub fn withdraw(
     is_activate_and_owned(deps.storage, info.sender.clone())?;
     
     let config = CONFIG.load(deps.storage)?;
-    if config.end_time.unwrap() > env.block.time {
+    if config.end_time.unwrap() >= env.block.time {
         return Err(ContractError::WheelNotEnded {});
     }
 
@@ -557,7 +606,7 @@ pub fn withdraw_nft(
     is_activate_and_owned(deps.storage, info.sender.clone())?;
     
     let config = CONFIG.load(deps.storage)?;
-    if config.end_time.unwrap() > env.block.time {
+    if config.end_time.unwrap() >= env.block.time {
         return Err(ContractError::WheelNotEnded {});
     }
 
@@ -586,7 +635,7 @@ pub fn withdraw_token(
     is_activate_and_owned(deps.storage, info.sender.clone())?;
     
     let config = CONFIG.load(deps.storage)?;
-    if config.end_time.unwrap() > env.block.time {
+    if config.end_time.unwrap() >= env.block.time {
         return Err(ContractError::WheelNotEnded {});
     }
 
@@ -639,10 +688,11 @@ pub fn nois_receive(
         }else{
             return Err(ContractError::RandomJobNotFound {});
         };
+    
+    // init a key for the random provider from the job id and current time
+    let key = format!("{}{}", job_id.clone(), env.block.time);
 
-    let key = format!("{}", env.block.time);
-
-    let _ = select_wheel_rewards(deps.storage, random_job.player, randomness, key, random_job.spins)?;
+    select_wheel_rewards(deps.storage, random_job.player, randomness, key, random_job.spins)?;
     
     // job finished, just remove
     RANDOM_JOBS.remove(deps.storage, job_id);
@@ -654,6 +704,16 @@ pub fn nois_receive(
 fn addr_validate(api: &dyn Api, addr: &str) -> Result<Addr, ContractError> {
     let addr = api.addr_validate(addr).map_err(|_| ContractError::InvalidAddress{})?;
     Ok(addr)
+}
+
+/// Make sure that the total reward supply does not exceed u32::MAX, 
+/// which results in error of NOIS funtion's `select_from_weighted`
+fn checked_add_supply(supply: u32, inc: u32) -> Result<u32, ContractError> {
+    supply.checked_add(inc).ok_or_else(|| ContractError::TooManyRewards {})
+}
+
+fn checked_u128_mul_u32(a: Uint128, b: u32) -> Uint128 {
+    a.checked_mul(Uint128::from(b as u128)).unwrap()
 }
 
 /// check if funds and required amount is equal
@@ -704,11 +764,12 @@ fn select_wheel_rewards(
     spins: u32
 ) -> Result<[u8; 32], ContractError> {
 
-    let mut wheel_rewards = WHEEL_REWARDS.load(storage)?;
+    let (supply, mut wheel_rewards) = WHEEL_REWARDS.load(storage)?;
 
     let mut spins_result = SPINS_RESULT.load(storage, player.clone())?;
 
-    let mut list_weighted: Vec<(usize, u32)> = Vec::new();
+    // generate weighted list for wheel rewards
+    let mut list_weighted: Vec<(usize, u32)> = Vec::with_capacity(wheel_rewards.len());
     for idx in 0..wheel_rewards.len() {
 
         let reward_supply =  wheel_rewards[idx].get_supply();
@@ -725,25 +786,33 @@ fn select_wheel_rewards(
         // random a new randomness
         randomness = provider.provide();
 
-        let reward_idx: usize = select_from_weighted(randomness, &list_weighted).unwrap();
+        // randomly selecting an element from a weighted list
+        let slot_idx: usize = select_from_weighted(randomness, &list_weighted).unwrap();
 
         // update weighted
-        list_weighted[reward_idx].1 -= 1;
+        list_weighted[slot_idx].1 -= 1;
 
-        match wheel_rewards[reward_idx].clone() {
+        // save spins result and update wheel rewards
+        match wheel_rewards[slot_idx].clone() {
             WheelReward::NftCollection(mut collection) => {
+                // get random nft in collection
+                let id_idx = int_in_range(randomness, 0, collection.token_ids.len() - 1);
+                
+                // spin result with nft of index id_idx as reward
                 let reward = WheelReward::NftCollection(CollectionReward { 
                     label: collection.label.clone(), 
                     collection_address: collection.collection_address.clone(), 
-                    token_ids: vec![collection.token_ids.pop().unwrap()] 
+                    token_ids: vec![collection.token_ids.swap_remove(id_idx)] 
                 });
-                
-                wheel_rewards[reward_idx] = WheelReward::NftCollection(collection);
+
+                // update rewards of slot
+                wheel_rewards[slot_idx] = WheelReward::NftCollection(collection);
 
                 spins_result.push((false, reward));
             }
 
             WheelReward::FungibleToken(mut token) => {
+                // spin result with token as reward
                 let reward = WheelReward::FungibleToken(TokenReward { 
                     label: token.label.clone(), 
                     token_address: token.token_address.clone(), 
@@ -753,12 +822,13 @@ fn select_wheel_rewards(
 
                 token.number -= 1;
                 
-                wheel_rewards[reward_idx] = WheelReward::FungibleToken(token);
+                wheel_rewards[slot_idx] = WheelReward::FungibleToken(token);
 
                 spins_result.push((false, reward));
             }
 
             WheelReward::Coin(mut coin) => {
+                 // spin result with coin as reward
                 let reward = WheelReward::Coin(CoinReward { 
                     label: coin.label.clone(), 
                     coin: coin.coin.clone(), 
@@ -767,12 +837,13 @@ fn select_wheel_rewards(
 
                 coin.number -= 1;
 
-                wheel_rewards[reward_idx] = WheelReward::Coin(coin);
+                wheel_rewards[slot_idx] = WheelReward::Coin(coin);
 
                 spins_result.push((false, reward));
             }
 
             WheelReward::Text(mut text) => {
+                 // spin result with text as reward
                 let reward = WheelReward::Text(TextReward { 
                     label: text.label.clone(), 
                     number: 1 
@@ -780,7 +851,7 @@ fn select_wheel_rewards(
 
                 text.number -= 1;
                 
-                wheel_rewards[reward_idx] = WheelReward::Text(text);
+                wheel_rewards[slot_idx] = WheelReward::Text(text);
 
                 spins_result.push((false, reward));
             }
@@ -791,7 +862,7 @@ fn select_wheel_rewards(
     SPINS_RESULT.save(storage, player, &spins_result)?;
 
     // update wheel rewards
-    WHEEL_REWARDS.save(storage, &wheel_rewards)?;
+    WHEEL_REWARDS.save(storage, &(supply, wheel_rewards))?;
 
     Ok(randomness)
 }
@@ -799,29 +870,48 @@ fn select_wheel_rewards(
 fn withdraw_reward_msgs(
     reward: WheelReward,
     recipient: String,
-    msgs: &mut Vec<CosmosMsg>
-) -> Result<(), ContractError> {
+    msgs: &mut Vec<CosmosMsg>,
+) -> Result<u32, ContractError> {
 
-    match reward {
+    let removed_supply = match reward {
         WheelReward::NftCollection(collection) => {
+            let supply = collection.token_ids.len() as u32;
+
             // create msgs for transfering NFTs to recipient
             transfer_nft_msgs(msgs, recipient, collection.collection_address, collection.token_ids)?;
+
+            supply
         }
         WheelReward::FungibleToken(token) => {
+            let total_amount = checked_u128_mul_u32(token.amount, token.number);
+
             // create msg for transfering fungible token to recipient
-            transfer_token_msg(msgs, recipient, token.token_address, token.amount)?;
+            transfer_token_msg(msgs, recipient, token.token_address, total_amount)?;
+
+            token.number
         }
         WheelReward::Coin(coin) => {
-            // send token to recipient
-            let send_msg = send_coin_msg(recipient, vec![coin.coin])?;
-            msgs.push(send_msg);
-        }
-        WheelReward::Text(_text) => {}
-    }
+            let total_coin = Coin{
+                denom: coin.coin.denom,
+                amount: checked_u128_mul_u32(coin.coin.amount, coin.number)
+            };
 
-    Ok(())
+            // send token to recipient
+            let send_msg = send_coin_msg(recipient, vec![total_coin])?;
+            msgs.push(send_msg);
+
+            coin.number
+        }
+        WheelReward::Text(text) => {
+            text.number
+        }
+    };
+
+    Ok(removed_supply)
 }
 
+
+/// Generate messages for transfering nfts 
 fn transfer_nft_msgs(
     msgs: &mut Vec<CosmosMsg>,
     recipient: String,
@@ -829,9 +919,8 @@ fn transfer_nft_msgs(
     token_ids: Vec<String>
 ) -> Result<(), ContractError> {
     for token_id in token_ids {
-        // transfer NFT to this contract
         let transfer_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: contract_addr.clone(),
+            contract_addr: contract_addr.clone(), // nft contract
             msg: to_binary(&CW721ExecuteMsg::<CW721Extension,CW721Extension>::TransferNft {
                 recipient: recipient.clone(), 
                 token_id
@@ -844,6 +933,7 @@ fn transfer_nft_msgs(
     Ok(())
 }
 
+/// generate message for transfering fungible token
 fn transfer_token_msg(
     msgs: &mut Vec<CosmosMsg>,
     recipient: String,
@@ -852,7 +942,7 @@ fn transfer_token_msg(
 ) -> Result<(), ContractError> {
 
     let transfer_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr,
+        contract_addr, // fungible token contract 
         msg: to_binary(&Cw20ExecuteMsg::Transfer { 
             recipient, 
             amount
@@ -865,6 +955,31 @@ fn transfer_token_msg(
     Ok(())
 }
 
+/// generate message for transfering fungible token from owner
+fn transfer_from_token_msg(
+    msgs: &mut Vec<CosmosMsg>,
+    owner: String,
+    recipient: String,
+    contract_addr: String,
+    amount: Uint128
+) -> Result<(), ContractError> {
+
+    let transfer_from_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr, // fungible token contract 
+        msg: to_binary(&Cw20ExecuteMsg::TransferFrom { 
+            owner,
+            recipient, 
+            amount
+        })?,
+        funds: vec![],
+    });
+
+    msgs.push(transfer_from_msg);
+
+    Ok(())
+}
+
+/// generate message for send coin
 fn send_coin_msg(
     recipient: String,
     amount: Vec<Coin>
@@ -879,18 +994,19 @@ fn send_coin_msg(
 
 /// Handling contract query
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
+pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::GetWheelRewards{} => to_binary(&get_wheel_rewards(deps)?),
         QueryMsg::GetPlayerRewards{address} => to_binary(&get_player_rewards(deps, address)?),
         QueryMsg::GetPlayerSpinned{address} => to_binary(&get_player_spinned(deps, address)?),
-        QueryMsg::GetWheelConfig {} => to_binary(&get_wheel_config(deps)?)
+        QueryMsg::GetWheelConfig {} => to_binary(&get_wheel_config(deps)?),
+        QueryMsg::Spinnable {address} => to_binary(&spinnable(deps, env, address)?)
     }
 }
 
 fn get_wheel_rewards(
     deps: Deps
-) -> StdResult<Vec<WheelReward>> {
+) -> StdResult<(u32, Vec<WheelReward>)> {
     WHEEL_REWARDS.load(deps.storage)
 }
 
@@ -914,4 +1030,36 @@ fn get_wheel_config(
     CONFIG.load(deps.storage)
 }
 
+fn spinnable(
+    deps: Deps,
+    env: Env,
+    address: String
+) -> StdResult<Option<u32>> {
+    
+    let admin_config = ADMIN_CONFIG.load(deps.storage).unwrap();
+    if !admin_config.activate {
+        return Ok(None);
+    }
+    
+    let config = CONFIG.load(deps.storage).unwrap();
+    let spinned_result = WHITELIST.may_load(deps.storage, Addr::unchecked(address)).unwrap();
+
+    if !config.is_public && spinned_result.is_none() {
+        return Ok(None);
+    }
+
+    if let Some(start_time) = config.start_time {
+        if start_time > env.block.time {
+            return Ok(None);
+        }
+    }
+
+    if config.end_time.unwrap() < env.block.time {
+        return Ok(None);
+    }
+
+    let spinned = spinned_result.unwrap_or(0);
+
+    Ok(Some(config.max_spins_per_address - spinned))
+}
 
