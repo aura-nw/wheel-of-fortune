@@ -47,19 +47,8 @@ pub enum ExecuteMsg {
     },
 
     Withdraw {
-        recipient: Option<String>,
-        denom: String,
-    },
-
-    WithdrawNft {
-        recipient: Option<String>,
-        collection: String,
-        token_ids: Vec<String>
-    },
-
-    WithdrawToken {
-        recipient: Option<String>,
-        token_address: String
+        slot: u32,
+        recipient: Option<String>
     },
 
     // user methods
