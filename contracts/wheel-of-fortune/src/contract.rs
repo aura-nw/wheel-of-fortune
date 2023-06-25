@@ -193,13 +193,14 @@ fn add_token_reward(
 
     let total_amount = checked_u128_mul_u32(token.amount, token.number);
 
-    transfer_from_token_msg(
-        msgs, 
+    let transfer_msg = transfer_from_token_msg(
         owner,
         recipient, 
         token.token_address.clone(), 
         total_amount
     )?;
+
+    msgs.push(transfer_msg);
 
     wheel_rewards.push(WheelReward::FungibleToken(token));
 
@@ -657,12 +658,11 @@ pub fn withdraw_token(
         return Err(ContractError::InsufficentFund {});
     }
 
-    let mut msgs: Vec<CosmosMsg> = Vec::new();
-    transfer_token_msg(msgs.as_mut(), recipient.clone(), token_address, contract_balance.balance)?;
+    let transfer_msg = transfer_token_msg(recipient.clone(), token_address, contract_balance.balance)?;
 
     Ok(Response::new().add_attribute("action", "withdraw_token")
     .add_attribute("receiver", recipient)
-    .add_messages(msgs))
+    .add_message(transfer_msg))
 }
 
 pub fn nois_receive(
@@ -886,7 +886,8 @@ fn withdraw_reward_msgs(
             let total_amount = checked_u128_mul_u32(token.amount, token.number);
 
             // create msg for transfering fungible token to recipient
-            transfer_token_msg(msgs, recipient, token.token_address, total_amount)?;
+            let transfer_msg = transfer_token_msg(recipient, token.token_address, total_amount)?;
+            msgs.push(transfer_msg);
 
             token.number
         }
@@ -935,11 +936,10 @@ fn transfer_nft_msgs(
 
 /// generate message for transfering fungible token
 fn transfer_token_msg(
-    msgs: &mut Vec<CosmosMsg>,
     recipient: String,
     contract_addr: String,
     amount: Uint128
-) -> Result<(), ContractError> {
+) -> Result<CosmosMsg, ContractError> {
 
     let transfer_msg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr, // fungible token contract 
@@ -950,19 +950,16 @@ fn transfer_token_msg(
         funds: vec![],
     });
 
-    msgs.push(transfer_msg);
-
-    Ok(())
+    Ok(transfer_msg)
 }
 
 /// generate message for transfering fungible token from owner
 fn transfer_from_token_msg(
-    msgs: &mut Vec<CosmosMsg>,
     owner: String,
     recipient: String,
     contract_addr: String,
     amount: Uint128
-) -> Result<(), ContractError> {
+) -> Result<CosmosMsg, ContractError> {
 
     let transfer_from_msg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr, // fungible token contract 
@@ -974,9 +971,7 @@ fn transfer_from_token_msg(
         funds: vec![],
     });
 
-    msgs.push(transfer_from_msg);
-
-    Ok(())
+    Ok(transfer_from_msg)
 }
 
 /// generate message for send coin
