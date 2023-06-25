@@ -159,60 +159,23 @@ RemoveReward {
 - Can only be executed when **Wheel** is not activated
 
 ### WITHDRAW
- Withdraw coins from contract
+ Withdraw reward from contract
 ```rust
 Withdraw {
     recipient: Option<String>, // recipient of coin, default is contract owner
-    denom: String, // coin denom
+    slot: u32, // slot reward
 }
 
 /* Example:
     withdraw {
         recipient: "aura159mt7ryhxd9g07fjw5lpreqnv8yzuf72vh22zg",
-        denom: "uaura"
+        slot: 0
     }
 */
 ```
 - Only allow `Admin` to execute
 - Can only be executed when **Wheel** is activated and ended
 
-### WITHDRAW-NFT
- Transfer ownership of nft from contract to recipient
-```rust
-WithdrawNft {
-    recipient: Option<String>, // recipient of nft, default is contract owner
-    collection: String, // nft contract address
-    token_ids: Vec<String> // list of token id
-}
-
-/* Example:
-withdraw_nft {
-    recipient: "aura159mt7ryhxd9g07fjw5lpreqnv8yzuf72vh22zg",
-    collection: "aura1gud6mupw5cg255yk84xc4xd0dcxggpa48m58vrakam96xgaz6xvq7kwsmf",
-    token_ids: ["111","222","666"]
-}
-*/
-```
-- Only allow `Admin` to execute
-- Can only be executed when **Wheel** is activated and ended
-
-### WITHDRAW-TOKEN
- Transfer token from contract to recipient
-```rust
-WithdrawToken {
-    recipient: Option<String>, // recipient of token, default is contract owner
-    token_address: String // token contract address
-}
-
-/* Example:
-withdraw_token {
-    recipient: "aura159mt7ryhxd9g07fjw5lpreqnv8yzuf72vh22zg",
-    token_address: "aura1gud6mupw5cg255yk84xc4xd0dcxggpa48m58vrakam96xgaz6xvq7kwsmf",
-}
-*/
-```
-- Only allow `Admin` to execute
-- Can only be executed when **Wheel** is activated and ended
 
 ### SPIN
  User spin wheel for reward and fun
