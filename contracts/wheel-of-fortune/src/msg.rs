@@ -1,5 +1,5 @@
 use cosmwasm_schema::{cw_serde, QueryResponses};
-use cosmwasm_std::Timestamp;
+use cosmwasm_std::{Timestamp, Addr};
 use crate::state::{WheelReward, UserFee, Config};
 use nois::NoisCallback;
 
@@ -96,9 +96,16 @@ pub enum QueryMsg {
     GetWheelConfig{},
 
     #[returns(Option<bool>)]
-    Spinnable{address: String}
+    Spinnable{address: String},
+
+    #[returns(Option<Vec<WhiteListResponse>>)]
+    GetWhiteList{}
 }
 
+#[cw_serde]
+pub struct WhiteListResponse {
+    pub addresses: Vec<Addr>
+}
 // We define a custom struct for each query response
 // #[cw_serde]
 // pub struct YourQueryResponse {}

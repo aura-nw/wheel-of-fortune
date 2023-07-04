@@ -2,7 +2,7 @@
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     Binary, Deps, DepsMut, Env, MessageInfo, Response, ensure_eq, BankMsg, BankQuery, BalanceResponse, Api,
-    StdResult, Storage, Addr, Timestamp, WasmMsg, to_binary, CosmosMsg, Uint128, Coin, coins, QueryRequest
+    StdResult, Storage, Addr, Timestamp, WasmMsg, to_binary, CosmosMsg, Uint128, Coin, coins, QueryRequest, Order
 };
 use cw2::set_contract_version;
 
@@ -11,7 +11,7 @@ use cw721_base::{ExecuteMsg as CW721ExecuteMsg, Extension as CW721Extension};
 use cw20::{Cw20ExecuteMsg, BalanceResponse as Cw20BalanceResponse, Cw20QueryMsg};
 
 use crate::error::ContractError;
-use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
+use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, WhiteListResponse};
 use crate::state::{
     Config, CONFIG, AdminConfig, ADMIN_CONFIG, RANDOM_SEED, WHITELIST, CollectionReward, CoinReward,
     WheelReward, WHEEL_REWARDS, TokenReward, RandomJob, RANDOM_JOBS, TextReward, SPINS_RESULT, UserFee
@@ -1000,7 +1000,8 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::GetPlayerRewards{address} => to_binary(&get_player_rewards(deps, address)?),
         QueryMsg::GetPlayerSpinned{address} => to_binary(&get_player_spinned(deps, address)?),
         QueryMsg::GetWheelConfig {} => to_binary(&get_wheel_config(deps)?),
-        QueryMsg::Spinnable {address} => to_binary(&spinnable(deps, env, address)?)
+        QueryMsg::Spinnable {address} => to_binary(&spinnable(deps, env, address)?),
+        QueryMsg::GetWhiteList{} => to_binary(&get_white_list(deps)?)
     }
 }
 
@@ -1028,6 +1029,18 @@ fn get_wheel_config(
     deps: Deps,
 ) -> StdResult<Config> {
     CONFIG.load(deps.storage)
+}
+
+fn get_white_list(
+    deps: Deps
+) -> StdResult<WhiteListResponse>{
+
+    let address: Result<Vec<_>, _> = WHITELIST
+        .keys(deps.storage, None, None, Order::Ascending)
+        .collect();
+    let address = address?;
+    let resp = WhiteListResponse { addresses: address };
+    Ok(resp)
 }
 
 fn spinnable(
