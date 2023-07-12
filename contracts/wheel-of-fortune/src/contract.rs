@@ -1,14 +1,14 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    Binary, Deps, DepsMut, Env, MessageInfo, Response, ensure_eq, BankMsg, BankQuery, BalanceResponse, Api,
-    StdResult, Storage, Addr, Timestamp, WasmMsg, to_binary, CosmosMsg, Uint128, Coin, coins, QueryRequest, Order
+    Binary, Deps, DepsMut, Env, MessageInfo, Response, ensure_eq, BankMsg, Api,
+    StdResult, Storage, Addr, Timestamp, WasmMsg, to_binary, CosmosMsg, Uint128, Coin, coins, Order
 };
 use cw2::set_contract_version;
 
 use cw721_base::{ExecuteMsg as CW721ExecuteMsg, Extension as CW721Extension};
 
-use cw20::{Cw20ExecuteMsg, BalanceResponse as Cw20BalanceResponse, Cw20QueryMsg};
+use cw20::Cw20ExecuteMsg;
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, WhiteListResponse};
@@ -97,9 +97,7 @@ pub fn execute(
         ExecuteMsg::AddReward { reward } => add_reward(deps, env, info, reward),
         ExecuteMsg::RemoveReward { slot } => remove_reward(deps, info, slot),
         ExecuteMsg::ActivateWheel { fee, start_time, end_time, shuffle } => activate_wheel(deps, env, info, fee, start_time, end_time, shuffle),
-        ExecuteMsg::Withdraw { recipient, denom } => withdraw(deps, env, info, recipient, denom),
-        ExecuteMsg::WithdrawNft { recipient, collection, token_ids } => withdraw_nft(deps, env, info, recipient, collection, token_ids),
-        ExecuteMsg::WithdrawToken { recipient, token_address } => withdraw_token(deps, env, info, recipient, token_address),
+        ExecuteMsg::Withdraw { slot, recipient} => withdraw(deps, env, info, slot, recipient),
 
         // user methods
         ExecuteMsg::Spin { number } => spin(deps, env, info, number),
@@ -193,13 +191,16 @@ fn add_token_reward(
 
     let total_amount = checked_u128_mul_u32(token.amount, token.number);
 
-    transfer_from_token_msg(
-        msgs, 
-        owner,
-        recipient, 
-        token.token_address.clone(), 
-        total_amount
-    )?;
+    if total_amount > Uint128::zero() {
+        transfer_from_token_msg(
+            msgs,
+            owner,
+            recipient, 
+            token.token_address.clone(), 
+            total_amount
+        )?;
+    }
+
 
     wheel_rewards.push(WheelReward::FungibleToken(token));
 
@@ -558,111 +559,47 @@ pub fn withdraw(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    recipient: Option<String>,
-    denom: String
+    slot: u32,
+    recipient: Option<String>
 ) -> Result<Response, ContractError> {
 
     // check if wheel is activated and sender is contract admin
     is_activate_and_owned(deps.storage, info.sender.clone())?;
     
+    // Withdrawal is only allowed when the round is over
     let config = CONFIG.load(deps.storage)?;
     if config.end_time.unwrap() >= env.block.time {
         return Err(ContractError::WheelNotEnded {});
     }
 
-    // get the balance of contract in bank
-    let contract_balance: BalanceResponse =
-        deps.querier.query(&QueryRequest::Bank(BankQuery::Balance {
-            address: env.contract.address.to_string(),
-            denom: denom.clone(),
-        }))?;
+    // list rewards of the wheel
+    let (supply, mut wheel_rewards) = WHEEL_REWARDS.load(deps.storage)?;
+
+    // slot out of range
+    if (slot as usize) >= wheel_rewards.len() {
+        return Err(ContractError::InvalidSlotReward {});
+    } 
     
-    if contract_balance.amount.amount == Uint128::zero() {
-        return Err(ContractError::InsufficentFund {});
-    }
-    
-    let recipient = recipient.unwrap_or(info.sender.to_string());
-    addr_validate(deps.api,&recipient)?;
-
-    // with draw token
-    let send_msg = send_coin_msg(recipient.clone(), vec![contract_balance.amount])?;
-
-    Ok(Response::new().add_attribute("action", "withdraw")
-        .add_attribute("denom", denom)
-        .add_attribute("receiver", recipient)
-        .add_message(send_msg))
-}
-
-pub fn withdraw_nft(
-    deps: DepsMut,
-    env: Env,
-    info: MessageInfo,
-    recipient: Option<String>,
-    collection_address: String,
-    token_ids: Vec<String>
-) -> Result<Response, ContractError> {
-
-    // check if wheel is activated and sender is contract admin
-    is_activate_and_owned(deps.storage, info.sender.clone())?;
-    
-    let config = CONFIG.load(deps.storage)?;
-    if config.end_time.unwrap() >= env.block.time {
-        return Err(ContractError::WheelNotEnded {});
-    }
+    // get and remove reward at slot
+    let reward = wheel_rewards.remove(slot as usize);
 
     let recipient = recipient.unwrap_or(info.sender.to_string());
-
     addr_validate(deps.api, &recipient)?;
-    addr_validate(deps.api, &collection_address)?;
 
     let mut msgs: Vec<CosmosMsg> = Vec::new();
-    transfer_nft_msgs(msgs.as_mut(), recipient.clone(), collection_address, token_ids)?;
+    let removed_supply = withdraw_reward_msgs(reward, recipient, msgs.as_mut())?;
 
-    Ok(Response::new().add_attribute("action", "withdraw_nft")
-    .add_attribute("receiver", recipient)
-    .add_messages(msgs))
-}
+    // update wheel rewards
+    WHEEL_REWARDS.save(deps.storage, &(supply - removed_supply, wheel_rewards))?;
 
-pub fn withdraw_token(
-    deps: DepsMut,
-    env: Env,
-    info: MessageInfo,
-    recipient: Option<String>,
-    token_address: String
-) -> Result<Response, ContractError> {
-
-    // check if wheel is activated and sender is contract admin
-    is_activate_and_owned(deps.storage, info.sender.clone())?;
-    
-    let config = CONFIG.load(deps.storage)?;
-    if config.end_time.unwrap() >= env.block.time {
-        return Err(ContractError::WheelNotEnded {});
+    if msgs.len() > 0 {
+        return Ok(Response::new().add_attribute("action", "withdraw")
+            .add_attribute("slot", slot.to_string())
+            .add_messages(msgs));
+    }else {
+        return Ok(Response::new().add_attribute("action", "withdraw")
+            .add_attribute("slot", slot.to_string()))
     }
-
-    let recipient = recipient.unwrap_or(info.sender.to_string());
-
-    addr_validate(deps.api, &recipient)?;
-    addr_validate(deps.api, &token_address)?;
-    
-    // get the token balance of contract
-    let contract_balance: Cw20BalanceResponse =
-            deps.querier.query_wasm_smart(
-                token_address.clone(),
-                &Cw20QueryMsg::Balance { 
-                    address: env.contract.address.to_string()
-                }
-            )?;
-    
-    if contract_balance.balance == Uint128::zero() {
-        return Err(ContractError::InsufficentFund {});
-    }
-
-    let mut msgs: Vec<CosmosMsg> = Vec::new();
-    transfer_token_msg(msgs.as_mut(), recipient.clone(), token_address, contract_balance.balance)?;
-
-    Ok(Response::new().add_attribute("action", "withdraw_token")
-    .add_attribute("receiver", recipient)
-    .add_messages(msgs))
 }
 
 pub fn nois_receive(
@@ -885,9 +822,11 @@ fn withdraw_reward_msgs(
         WheelReward::FungibleToken(token) => {
             let total_amount = checked_u128_mul_u32(token.amount, token.number);
 
-            // create msg for transfering fungible token to recipient
-            transfer_token_msg(msgs, recipient, token.token_address, total_amount)?;
-
+            if total_amount > Uint128::zero() {
+                // create msg for transfering fungible token to recipient
+                transfer_token_msg(msgs, recipient, token.token_address, total_amount)?;
+            }
+            
             token.number
         }
         WheelReward::Coin(coin) => {
@@ -896,9 +835,10 @@ fn withdraw_reward_msgs(
                 amount: checked_u128_mul_u32(coin.coin.amount, coin.number)
             };
 
-            // send token to recipient
-            let send_msg = send_coin_msg(recipient, vec![total_coin])?;
-            msgs.push(send_msg);
+            if total_coin.amount > Uint128::zero() {
+                // send token to recipient
+                send_coin_msg(msgs, recipient, vec![total_coin])?;
+            }
 
             coin.number
         }
@@ -981,15 +921,20 @@ fn transfer_from_token_msg(
 
 /// generate message for send coin
 fn send_coin_msg(
+    msgs: &mut Vec<CosmosMsg>,
     recipient: String,
     amount: Vec<Coin>
-) -> Result<CosmosMsg, ContractError> {
+) -> Result<(), ContractError> {
+
     // send coin to recipient
     let send_msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
         to_address: recipient,
         amount,
     });
-    Ok(send_msg)
+
+    msgs.push(send_msg);
+
+    Ok(())
 }
 
 /// Handling contract query
