@@ -210,7 +210,6 @@ ClaimReward {
 ``` 
 - Players can only claim the rewards they have won
 - Can only be executed whe **wheel** is activated
-- After `end_time` wheel's rewards can be withdraw by it's owner so better claim before
 
 ### NOIS-RECEIVE
  Method that reveive callback from `nois-proxy` contract
@@ -264,6 +263,12 @@ GetPlayerRewards{
 GetPlayerSpinned{
     address: String // wallet address of player
 }
+```
+
+### GET-WHITELIST
+ Get a list of addresses that can spin the wheel in *private* mode
+```rust
+GetWhiteList{}
 ```
 
 ### GET-WHEEL-CONFIG
