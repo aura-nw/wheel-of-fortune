@@ -51,6 +51,11 @@ pub enum ExecuteMsg {
         recipient: Option<String>
     },
 
+    WithdrawCoin {
+        denom: String,
+        recipient: Option<String>
+    },
+
     // user methods
     Spin {
         number: Option<u32>

@@ -1,8 +1,8 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    Binary, Deps, DepsMut, Env, MessageInfo, Response, ensure_eq, BankMsg, Api,
-    StdResult, Storage, Addr, Timestamp, WasmMsg, to_binary, CosmosMsg, Uint128, Coin, coins, Order
+    Binary, Deps, DepsMut, Env, MessageInfo, Response, ensure_eq, BankMsg, Api, BalanceResponse, BankQuery,
+    StdResult, Storage, Addr, Timestamp, WasmMsg, to_binary, CosmosMsg, Uint128, Coin, coins, Order, QueryRequest
 };
 use cw2::set_contract_version;
 
@@ -14,7 +14,8 @@ use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, WhiteListResponse};
 use crate::state::{
     Config, CONFIG, AdminConfig, ADMIN_CONFIG, RANDOM_SEED, WHITELIST, CollectionReward, CoinReward,
-    WheelReward, WHEEL_REWARDS, TokenReward, RandomJob, RANDOM_JOBS, TextReward, SPINS_RESULT, UserFee
+    WheelReward, WHEEL_REWARDS, TokenReward, RandomJob, RANDOM_JOBS, TextReward, SPINS_RESULT, UserFee,
+    LOCKED_COINS
 };
 
 use nois::{
@@ -98,6 +99,7 @@ pub fn execute(
         ExecuteMsg::RemoveReward { slot } => remove_reward(deps, info, slot),
         ExecuteMsg::ActivateWheel { fee, start_time, end_time, shuffle } => activate_wheel(deps, env, info, fee, start_time, end_time, shuffle),
         ExecuteMsg::Withdraw { slot, recipient} => withdraw(deps, env, info, slot, recipient),
+        ExecuteMsg::WithdrawCoin { denom, recipient } => withdraw_coin(deps, env, info, denom, recipient),
 
         // user methods
         ExecuteMsg::Spin { number } => spin(deps, env, info, number),
@@ -211,7 +213,7 @@ fn add_coin_reward(
     wheel_rewards: &mut Vec<WheelReward>,
     funds: Vec<Coin>,
     coin: CoinReward
-) -> Result<(), ContractError> {
+) -> Result<Uint128, ContractError> {
 
     if coin.label.len() > MAX_TEXT_LENGTH {
         return Err(ContractError::TextTooLong {});
@@ -225,7 +227,7 @@ fn add_coin_reward(
 
     wheel_rewards.push(WheelReward::Coin(coin));
 
-    Ok(())
+    Ok(total_amount)
 }
 
 fn add_text_reward(
@@ -287,7 +289,15 @@ pub fn add_reward(
             supply = checked_add_supply(supply, coin.number)?;
 
             // add coint to wheel rewards list
-            add_coin_reward(wheel_rewards.as_mut(), info.funds, coin)?;
+            let total_amount = add_coin_reward(wheel_rewards.as_mut(), info.funds, coin.clone())?;
+
+            // Locked coins can only be claimed by users who win rewards
+            // and by the owner at the end of the spin through the `withdraw` method
+            if let Some(locked_amount) = LOCKED_COINS.may_load(deps.storage, coin.coin.denom.clone())? {
+                LOCKED_COINS.save(deps.storage, coin.coin.denom, &locked_amount.checked_add(total_amount).unwrap())?;
+            }else{
+                LOCKED_COINS.save(deps.storage, coin.coin.denom, &total_amount)?;
+            }
         }
         WheelReward::Text(text) => {
             // increase wheel's total reward supply
@@ -600,6 +610,50 @@ pub fn withdraw(
         return Ok(Response::new().add_attribute("action", "withdraw")
             .add_attribute("slot", slot.to_string()))
     }
+}
+
+pub fn withdraw_coin(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    denom: String,
+    recipient: Option<String>,
+) -> Result<Response, ContractError> {
+
+    // get the balance of contract
+    let contract_balance: BalanceResponse =
+        deps.querier.query(&QueryRequest::Bank(BankQuery::Balance {
+            address: env.contract.address.to_string(),
+            denom: denom.clone(),
+        }))?;
+
+    let locked_amount = 
+        if let Some(amount) = LOCKED_COINS.may_load(deps.storage, denom.clone())? {
+            amount
+        }else{
+            Uint128::zero()
+        };
+    
+    if contract_balance.amount.amount <= locked_amount {
+        return Err(ContractError::InsufficentFund {});
+    }
+    
+    let recipient = recipient.unwrap_or(info.sender.to_string());
+    addr_validate(deps.api,&recipient)?;
+
+    // withdraw coin
+    let coin = Coin {
+        denom: contract_balance.amount.denom,
+        amount: contract_balance.amount.amount.checked_sub(locked_amount).unwrap()
+    };
+
+    let mut msgs: Vec<CosmosMsg> = Vec::new();
+    send_coin_msg(msgs.as_mut(), recipient.clone(), vec![coin])?;
+
+    Ok(Response::new().add_attribute("action", "withdraw_coin")
+        .add_attribute("denom", denom)
+        .add_attribute("receiver", recipient)
+        .add_messages(msgs))
 }
 
 pub fn nois_receive(
