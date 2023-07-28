@@ -9,7 +9,6 @@ use cw2::set_contract_version;
 use cw721_base::{ExecuteMsg as CW721ExecuteMsg, Extension as CW721Extension};
 
 use cw20::Cw20ExecuteMsg;
-use schemars::_private::NoSerialize;
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, WhiteListResponse};
