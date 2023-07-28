@@ -9,6 +9,7 @@ use cw2::set_contract_version;
 use cw721_base::{ExecuteMsg as CW721ExecuteMsg, Extension as CW721Extension};
 
 use cw20::Cw20ExecuteMsg;
+use schemars::_private::NoSerialize;
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, WhiteListResponse};
@@ -340,7 +341,7 @@ fn remove_reward(
 
     let mut msgs: Vec<CosmosMsg> = Vec::new();
 
-    let removed_supply = withdraw_reward_msgs(reward, info.sender.to_string(), msgs.as_mut())?;
+    let removed_supply = withdraw_reward_msgs(deps.storage, reward, info.sender.to_string(), msgs.as_mut())?;
 
     // update wheel rewards
     WHEEL_REWARDS.save(deps.storage, &(supply - removed_supply, wheel_rewards))?;
@@ -545,7 +546,7 @@ pub fn claim_reward(
         if let Some((is_claimed, reward)) = spins_result.get(idx as usize){
             if !is_claimed {
 
-                withdraw_reward_msgs(reward.to_owned(), info.sender.to_string(), msgs.as_mut())?;
+                withdraw_reward_msgs(deps.storage, reward.to_owned(), info.sender.to_string(), msgs.as_mut())?;
 
                 spins_result[idx as usize].0 = true;       
             }
@@ -597,7 +598,7 @@ pub fn withdraw(
     addr_validate(deps.api, &recipient)?;
 
     let mut msgs: Vec<CosmosMsg> = Vec::new();
-    let removed_supply = withdraw_reward_msgs(reward, recipient, msgs.as_mut())?;
+    let removed_supply = withdraw_reward_msgs(deps.storage, reward, recipient, msgs.as_mut())?;
 
     // update wheel rewards
     WHEEL_REWARDS.save(deps.storage, &(supply - removed_supply, wheel_rewards))?;
@@ -859,6 +860,7 @@ fn select_wheel_rewards(
 }
 
 fn withdraw_reward_msgs(
+    storage: &mut dyn Storage,
     reward: WheelReward,
     recipient: String,
     msgs: &mut Vec<CosmosMsg>,
@@ -884,9 +886,20 @@ fn withdraw_reward_msgs(
             token.number
         }
         WheelReward::Coin(coin) => {
+            let total_amount = checked_u128_mul_u32(coin.coin.amount, coin.number);
+
+            // remove locked amount
+            let locked_amount = LOCKED_COINS.load(storage, coin.coin.denom.clone())?;
+            if locked_amount <= total_amount {
+                LOCKED_COINS.remove(storage, coin.coin.denom.clone());
+            }else{
+                LOCKED_COINS.save(storage, coin.coin.denom.clone(), &locked_amount.checked_sub(total_amount).unwrap())?;
+            }
+
+
             let total_coin = Coin{
                 denom: coin.coin.denom,
-                amount: checked_u128_mul_u32(coin.coin.amount, coin.number)
+                amount: total_amount
             };
 
             if total_coin.amount > Uint128::zero() {
