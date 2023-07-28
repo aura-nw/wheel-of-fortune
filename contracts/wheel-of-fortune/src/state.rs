@@ -109,3 +109,6 @@ pub const RANDOM_SEED: Item<[u8; 32]> = Item::new("random seed");
 pub const WHITELIST: Map<Addr, u32> = Map::new("whitelist");
 
 pub const SPINS_RESULT: Map<Addr, Vec<(bool, WheelReward)>> = Map::new("spins result");
+
+// locked coins
+pub const LOCKED_COINS: Map<String, Uint128> = Map::new("locked coins");

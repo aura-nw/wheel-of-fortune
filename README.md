@@ -176,6 +176,15 @@ Withdraw {
 - Only allow `Admin` to execute
 - Can only be executed when **Wheel** is activated and ended
 
+### WITHDRAW-COIN
+ Withdraw coins from contract
+```rust
+WithdrawCoin {
+    denom: String, // denom
+    recipient: Option<String> // recipient of coin, default is contract owner
+}
+```
+- Only allow `Admin` to execute
 
 ### SPIN
  User spin wheel for reward and fun
