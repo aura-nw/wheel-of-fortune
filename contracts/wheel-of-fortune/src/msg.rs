@@ -1,6 +1,6 @@
 use cosmwasm_schema::{cw_serde, QueryResponses};
-use cosmwasm_std::{Timestamp, Addr};
-use crate::state::{WheelReward, UserFee, Config};
+use cosmwasm_std::{Timestamp, Addr, Coin};
+use crate::state::{WheelReward, Config};
 use nois::NoisCallback;
 
 
@@ -40,7 +40,7 @@ pub enum ExecuteMsg {
     },
 
     ActivateWheel {
-        fee: UserFee,
+        price: Coin,
         start_time: Option<Timestamp>,
         end_time: Timestamp,
         shuffle: Option<bool>
