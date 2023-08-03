@@ -2,7 +2,7 @@
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     Binary, Deps, DepsMut, Env, MessageInfo, Response, ensure_eq, BankMsg, Api, BalanceResponse, BankQuery, has_coins,
-    StdResult, Storage, Addr, Timestamp, WasmMsg, to_binary, CosmosMsg, Uint128, Coin, coins, Order, QueryRequest
+    StdResult, Storage, Addr, Timestamp, WasmMsg, to_binary, CosmosMsg, Uint128, Coin, Order, QueryRequest
 };
 use cw2::set_contract_version;
 
@@ -515,6 +515,10 @@ pub fn spin(
 
 /// check if there is enough funds
 fn check_funds(funds: &mut Vec<Coin>, spins: u32,  config: Config) -> Result<(), ContractError> {
+
+    if config.price.amount == Uint128::zero() {
+        return Ok(());
+    }
 
     let total_amount = checked_u128_mul_u32(config.price.amount, spins);
 
