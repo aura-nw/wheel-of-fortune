@@ -620,6 +620,16 @@ pub fn withdraw_coin(
     recipient: Option<String>,
 ) -> Result<Response, ContractError> {
 
+    // check if wheel is activated and sender is contract admin
+    is_activate_and_owned(deps.storage, info.sender.clone())?;
+    
+    // Withdrawal is only allowed when the round is over
+    let config = CONFIG.load(deps.storage)?;
+    if config.end_time.unwrap() >= env.block.time {
+        return Err(ContractError::WheelNotEnded {});
+    }
+
+    
     // get the balance of contract
     let contract_balance: BalanceResponse =
         deps.querier.query(&QueryRequest::Bank(BankQuery::Balance {
