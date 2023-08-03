@@ -487,11 +487,12 @@ pub fn spin(
             spins 
         };
 
-        RANDOM_JOBS.save(deps.storage, job_id, &random_job)?;
+        RANDOM_JOBS.save(deps.storage, job_id.clone(), &random_job)?;
 
         return Ok(Response::new().add_attribute("action", "spin")
             .add_attribute("sender", info.sender)
             .add_attribute("spins", spins.to_string())
+            .add_attribute("job_id", job_id)
             .add_message(msg));
     }else {
 
@@ -709,9 +710,10 @@ pub fn nois_receive(
     select_wheel_rewards(deps.storage, random_job.player, randomness, key, random_job.spins)?;
     
     // job finished, just remove
-    RANDOM_JOBS.remove(deps.storage, job_id);
+    RANDOM_JOBS.remove(deps.storage, job_id.clone());
 
-    Ok(Response::new().add_attribute("action", "nois_receive"))
+    Ok(Response::new().add_attribute("action", "nois_receive")
+        .add_attribute("job_id", job_id))
 }
 
 /// validate string if it is valid bench32 string addresss
