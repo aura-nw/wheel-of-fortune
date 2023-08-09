@@ -43,14 +43,16 @@ pub const ADMIN_CONFIG: Item<AdminConfig> = Item::new("admin config");
 pub struct CollectionReward {
     pub label: String,
     pub collection_address: String,
-    pub token_ids: Vec<String>
+    pub token_ids: Vec<String>,
+    pub id: u32
 }
 
 #[cw_serde]
 pub struct CoinReward {
     pub label: String,
     pub coin: Coin,
-    pub number: u32
+    pub number: u32,
+    pub id: u32
 }
 
 
@@ -58,6 +60,7 @@ pub struct CoinReward {
 pub struct TextReward {
     pub label: String,
     pub number: u32,
+    pub id: u32
 }
 
 #[cw_serde]
@@ -65,7 +68,8 @@ pub struct TokenReward {
     pub label: String,
     pub token_address: String,
     pub amount: Uint128,
-    pub number: u32
+    pub number: u32,
+    pub id: u32
 }
 
 #[cw_serde]
