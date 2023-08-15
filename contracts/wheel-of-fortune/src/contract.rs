@@ -2,7 +2,7 @@
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     Binary, Deps, DepsMut, Env, MessageInfo, Response, ensure_eq, BankMsg, Api, BalanceResponse, BankQuery, has_coins,
-    StdResult, Storage, Addr, Timestamp, WasmMsg, to_binary, CosmosMsg, Uint128, Coin, Order, QueryRequest, Empty
+    StdResult, Storage, Addr, Timestamp, WasmMsg, to_binary, CosmosMsg, Uint128, Coin, Order, QueryRequest
 };
 use cw2::set_contract_version;
 
