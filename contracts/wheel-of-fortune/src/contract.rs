@@ -2,11 +2,11 @@
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     Binary, Deps, DepsMut, Env, MessageInfo, Response, ensure_eq, BankMsg, Api, BalanceResponse, BankQuery, has_coins,
-    StdResult, Storage, Addr, Timestamp, WasmMsg, to_binary, CosmosMsg, Uint128, Coin, Order, QueryRequest
+    StdResult, Storage, Addr, Timestamp, WasmMsg, to_binary, CosmosMsg, Uint128, Coin, Order, QueryRequest, Empty
 };
 use cw2::set_contract_version;
 
-use cw721_base::{ExecuteMsg as CW721ExecuteMsg, Extension as CW721Extension};
+use cw721::Cw721ExecuteMsg;
 
 use cw20::Cw20ExecuteMsg;
 
@@ -522,7 +522,7 @@ fn check_funds(funds: &mut Vec<Coin>, spins: u32,  config: Config) -> Result<(),
     }
 
     let total_amount = checked_u128_mul_u32(config.price.amount, spins);
-
+    
     if let Some(coin_idx) = 
         funds.iter().position(|c| c.denom == config.price.denom) {
         if funds[coin_idx].amount < total_amount {
@@ -938,7 +938,7 @@ fn transfer_nft_msgs(
     for token_id in token_ids {
         let transfer_msg = CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: contract_addr.clone(), // nft contract
-            msg: to_binary(&CW721ExecuteMsg::<CW721Extension,CW721Extension>::TransferNft {
+            msg: to_binary(&Cw721ExecuteMsg::TransferNft {
                 recipient: recipient.clone(), 
                 token_id
             })?,
