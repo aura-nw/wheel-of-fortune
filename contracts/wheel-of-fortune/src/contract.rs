@@ -1,8 +1,8 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    Binary, Deps, DepsMut, Env, MessageInfo, Response, ensure_eq, BankMsg, Api, BalanceResponse, BankQuery,
-    StdResult, Storage, Addr, Timestamp, WasmMsg, to_binary, CosmosMsg, Uint128, Coin, coins, Order, QueryRequest
+    Binary, Deps, DepsMut, Env, MessageInfo, Response, ensure_eq, BankMsg, Api, BalanceResponse, BankQuery, has_coins,
+    StdResult, Storage, Addr, Timestamp, WasmMsg, to_binary, CosmosMsg, Uint128, Coin, Order, QueryRequest
 };
 use cw2::set_contract_version;
 
@@ -14,8 +14,7 @@ use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, WhiteListResponse};
 use crate::state::{
     Config, CONFIG, AdminConfig, ADMIN_CONFIG, RANDOM_SEED, WHITELIST, CollectionReward, CoinReward,
-    WheelReward, WHEEL_REWARDS, TokenReward, RandomJob, RANDOM_JOBS, TextReward, SPINS_RESULT, UserFee,
-    LOCKED_COINS
+    WheelReward, WHEEL_REWARDS, TokenReward, RandomJob, RANDOM_JOBS, TextReward, SPINS_RESULT, LOCKED_COINS
 };
 
 use nois::{
@@ -60,7 +59,7 @@ pub fn instantiate(
         is_advanced_randomness: msg.is_advanced_randomness,
         start_time: None,
         end_time: None,
-        fee: UserFee::default(),
+        price: Coin::default(),
         nois_proxy
     };
     CONFIG.save(deps.storage, &config)?;
@@ -97,7 +96,8 @@ pub fn execute(
         ExecuteMsg::RemoveWhitelist { addresses } => remove_whitelist(deps, info, addresses),
         ExecuteMsg::AddReward { reward } => add_reward(deps, env, info, reward),
         ExecuteMsg::RemoveReward { slot } => remove_reward(deps, info, slot),
-        ExecuteMsg::ActivateWheel { fee, start_time, end_time, shuffle } => activate_wheel(deps, env, info, fee, start_time, end_time, shuffle),
+        ExecuteMsg::ActivateWheel { price, start_time, end_time, shuffle } 
+        => activate_wheel(deps, env, info, price, start_time, end_time, shuffle),
         ExecuteMsg::Withdraw { slot, recipient} => withdraw(deps, env, info, slot, recipient),
         ExecuteMsg::WithdrawCoin { denom, recipient } => withdraw_coin(deps, env, info, denom, recipient),
 
@@ -221,7 +221,7 @@ fn add_coin_reward(
 
     let total_amount = checked_u128_mul_u32(coin.coin.amount, coin.number);
         
-    if !has_coin(funds, coin.coin.denom.clone(), total_amount) {
+    if !has_coins(&funds, &Coin::new(total_amount.u128(),coin.coin.denom.clone())) {
         return Err(ContractError::InsufficentFund {});
     }
 
@@ -359,7 +359,7 @@ pub fn activate_wheel(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    fee: UserFee,
+    price: Coin,
     start_time: Option<Timestamp>,
     end_time: Timestamp,
     shuffle: Option<bool>
@@ -384,7 +384,7 @@ pub fn activate_wheel(
     ADMIN_CONFIG.save(deps.storage, &admin_config)?;
 
     let mut config = CONFIG.load(deps.storage)?;
-    config.fee = fee;
+    config.price = price;
     config.start_time = start_time;
     config.end_time = Some(end_time);
     CONFIG.save(deps.storage, &config)?;
@@ -454,16 +454,9 @@ pub fn spin(
 
     let spinned = spinned_result.unwrap_or(0);
 
-    let mut total_amount = checked_u128_mul_u32(config.fee.spin_price, spins);
-
-    // if contract using advanced randomness mode, player must pay for nois randomness request
-    if config.is_advanced_randomness {
-        total_amount = total_amount.checked_add(config.fee.nois_fee).unwrap();
-    }
-
-    if !has_coin(info.funds, config.fee.denom.clone(), total_amount) {
-        return Err(ContractError::InsufficentFund {});
-    }
+    // check funds
+    let mut funds = info.funds;
+    check_funds(funds.as_mut(), spins, config.clone())?;
 
     if spins > (config.max_spins_per_address - spinned) {
         return Err(ContractError::CustomError {
@@ -479,13 +472,13 @@ pub fn spin(
     if config.is_advanced_randomness {
 
         let job_id = format!("{}/{}", info.sender, spinned);
-
+        
         // Make randomness request message to NOIS proxy contract
         let msg = CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: config.nois_proxy.into(),
             msg: to_binary(&ProxyExecuteMsg::GetNextRandomness { 
                             job_id: job_id.clone() })?,
-            funds: coins(config.fee.nois_fee.u128(), config.fee.denom),
+            funds,
         });
 
         // save job for mapping callback response to request
@@ -494,11 +487,12 @@ pub fn spin(
             spins 
         };
 
-        RANDOM_JOBS.save(deps.storage, job_id, &random_job)?;
+        RANDOM_JOBS.save(deps.storage, job_id.clone(), &random_job)?;
 
         return Ok(Response::new().add_attribute("action", "spin")
             .add_attribute("sender", info.sender)
             .add_attribute("spins", spins.to_string())
+            .add_attribute("job_id", job_id)
             .add_message(msg));
     }else {
 
@@ -518,6 +512,36 @@ pub fn spin(
             .add_attribute("sender", info.sender)
             .add_attribute("spins", spins.to_string()));
     }
+}
+
+/// check if there is enough funds
+fn check_funds(funds: &mut Vec<Coin>, spins: u32,  config: Config) -> Result<(), ContractError> {
+
+    if config.price.amount == Uint128::zero() {
+        return Ok(());
+    }
+
+    let total_amount = checked_u128_mul_u32(config.price.amount, spins);
+
+    if let Some(coin_idx) = 
+        funds.iter().position(|c| c.denom == config.price.denom) {
+        if funds[coin_idx].amount < total_amount {
+            return Err(ContractError::InsufficentFund {});
+        }
+
+        if config.is_advanced_randomness {
+            if funds[coin_idx].amount == total_amount {
+                funds.swap_remove(coin_idx);
+            }else{
+                funds[coin_idx].amount = 
+                    funds[coin_idx].amount.checked_sub(total_amount).unwrap();
+            }
+        }
+    } else { 
+        return Err(ContractError::InsufficentFund {});
+    }
+
+    return Ok(())
 }
 
 pub fn claim_reward(
@@ -696,9 +720,10 @@ pub fn nois_receive(
     select_wheel_rewards(deps.storage, random_job.player, randomness, key, random_job.spins)?;
     
     // job finished, just remove
-    RANDOM_JOBS.remove(deps.storage, job_id);
+    RANDOM_JOBS.remove(deps.storage, job_id.clone());
 
-    Ok(Response::new().add_attribute("action", "nois_receive"))
+    Ok(Response::new().add_attribute("action", "nois_receive")
+        .add_attribute("job_id", job_id))
 }
 
 /// validate string if it is valid bench32 string addresss
@@ -715,20 +740,6 @@ fn checked_add_supply(supply: u32, inc: u32) -> Result<u32, ContractError> {
 
 fn checked_u128_mul_u32(a: Uint128, b: u32) -> Uint128 {
     a.checked_mul(Uint128::from(b as u128)).unwrap()
-}
-
-/// check if funds and required amount is equal
-fn has_coin(
-    funds: Vec<Coin>,
-    denom: String,
-    amount: Uint128
-) -> bool {
-    if funds.len() != 1 || 
-        funds[0].denom != denom || 
-         funds[0].amount != amount {
-            return false;
-    }
-    true
 }
 
 fn is_not_activate_and_owned(storage: &dyn Storage, sender: Addr) -> Result<(), ContractError> {

@@ -3,23 +3,6 @@ use cosmwasm_std::{Coin, Addr, Timestamp, Uint128};
 use cw_storage_plus::{Item, Map};
 
 #[cw_serde]
-pub struct UserFee {
-    pub denom: String,
-    pub spin_price: Uint128,
-    pub nois_fee: Uint128
-}
-
-impl UserFee {
-    pub fn default() -> UserFee {
-        UserFee { 
-            denom: "".to_string(), 
-            spin_price: Uint128::zero(), 
-            nois_fee: Uint128::zero() 
-        }
-    }
-}
-
-#[cw_serde]
 pub struct Config {
     pub wheel_name: String,
     pub max_spins_per_address: u32,
@@ -28,7 +11,7 @@ pub struct Config {
     pub start_time: Option<Timestamp>,
     pub end_time: Option<Timestamp>,
     pub nois_proxy: Addr,
-    pub fee: UserFee
+    pub price: Coin
 }
 pub const CONFIG: Item<Config> = Item::new("config");
 
