@@ -814,7 +814,8 @@ fn select_wheel_rewards(
                 let reward = WheelReward::NftCollection(CollectionReward { 
                     label: collection.label.clone(), 
                     collection_address: collection.collection_address.clone(), 
-                    token_ids: vec![collection.token_ids.swap_remove(id_idx)] 
+                    token_ids: vec![collection.token_ids.swap_remove(id_idx)],
+                    id: collection.id.clone()
                 });
 
                 // update rewards of slot
@@ -829,7 +830,8 @@ fn select_wheel_rewards(
                     label: token.label.clone(), 
                     token_address: token.token_address.clone(), 
                     amount: token.amount, 
-                    number: 1 
+                    number: 1,
+                    id: token.id.clone()
                 });
 
                 token.number -= 1;
@@ -844,7 +846,8 @@ fn select_wheel_rewards(
                 let reward = WheelReward::Coin(CoinReward { 
                     label: coin.label.clone(), 
                     coin: coin.coin.clone(), 
-                    number: 1 
+                    number: 1,
+                    id: coin.id.clone()
                 });
 
                 coin.number -= 1;
@@ -858,7 +861,8 @@ fn select_wheel_rewards(
                  // spin result with text as reward
                 let reward = WheelReward::Text(TextReward { 
                     label: text.label.clone(), 
-                    number: 1 
+                    number: 1,
+                    id: text.id.clone()
                 });
 
                 text.number -= 1;
