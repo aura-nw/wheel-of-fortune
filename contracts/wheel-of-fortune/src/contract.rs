@@ -27,7 +27,7 @@ use nois::{
 const CONTRACT_NAME: &str = "crates.io:wheel-of-fortune";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-const MAX_TEXT_LENGTH: usize = 64;
+const MAX_TEXT_LENGTH: usize = 253;
 const MAX_VEC_ITEM: usize = 65536;
 const MAX_SPINS_PER_TURN: u32 = 10;
 const DEFAULT_ACTIVATE: bool = false;
