@@ -116,8 +116,10 @@ pub fn add_whitelist(
     addresses: Vec<String>
 ) -> Result<Response, ContractError> {
 
-    // check if wheel is not activated and sender is contract admin
-    is_not_activate_and_owned(deps.storage, info.sender)?;
+    let admin_config = ADMIN_CONFIG.load(deps.storage)?;
+    if admin_config.admin != info.sender {
+        return Err(ContractError::Unauthorized {});
+    }
 
     for address in addresses {
         let addr = Addr::unchecked(address.clone());
@@ -142,8 +144,10 @@ pub fn remove_whitelist(
     addresses: Vec<String>
 ) -> Result<Response, ContractError> {
 
-    // check if wheel is not activated and sender is contract admin
-    is_not_activate_and_owned(deps.storage, info.sender)?;
+    let admin_config = ADMIN_CONFIG.load(deps.storage)?;
+    if admin_config.admin != info.sender {
+        return Err(ContractError::Unauthorized {});
+    }
 
     for address in addresses {
         WHITELIST.remove(deps.storage, Addr::unchecked(address));
