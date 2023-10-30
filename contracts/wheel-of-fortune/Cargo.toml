@@ -52,6 +52,7 @@ schemars = "0.8.8"
 serde = { version = "1.0.137", default-features = false, features = ["derive"] }
 thiserror = { version = "1.0.31" }
 nois = "0.7.0"
+cargo-tarpaulin = "0.27.1"
 
 [dev-dependencies]
 cw-multi-test = "0.16.5"
