@@ -7,7 +7,7 @@
  Activate wheel. After activated, wheel can not be modified
 ```rust
 ActivateWheel {
-    fee: UserFee, // fee pay for spin
+    price: Coin, // fee pay for spin
     start_time: Option<Timestamp>, // start time of wheel, default is current block time
     end_time: Timestamp, // end time of wheel
     shuffle: Option<bool>, // shuffle wheel rewards if true, default `false`
@@ -32,7 +32,6 @@ AddWhitelist {
 */
 ```
 - Only allow `Admin` to execute
-- Can only be executed when **Wheel** is not activated
 
 ### REMOVE-WHITE-LIST
  Remove wallet addressese from white list
@@ -48,7 +47,6 @@ RemoveWhitelist {
 */
 ```
 - Only allow `Admin` to execute
-- Can only be executed when **Wheel** is not activated
 
 ### ADD-REWARD
  Add reward to wheel, slot by slot
