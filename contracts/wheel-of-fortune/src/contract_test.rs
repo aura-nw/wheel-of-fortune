@@ -1053,6 +1053,7 @@ mod unit_tests {
             spin_msg).unwrap();
         assert_eq!(res, Response::new().add_attribute("action", "spin")
         .add_attribute("sender", USER)
+        .add_attribute("spun", "0")
         .add_attribute("spins", "1"));
     }
 
