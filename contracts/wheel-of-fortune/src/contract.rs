@@ -514,6 +514,7 @@ pub fn spin(
 
         return Ok(Response::new().add_attribute("action", "spin")
             .add_attribute("sender", info.sender)
+            .add_attribute("spun", spinned.to_string())
             .add_attribute("spins", spins.to_string()));
     }
 }
