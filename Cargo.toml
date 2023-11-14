@@ -5,6 +5,20 @@ members = [
   'contracts/*',
 ]
 
+[workspace.dependencies]
+cosmwasm-schema = "1.1.2"
+cosmwasm-std = "1.1.2"
+cosmwasm-storage = "1.1.2"
+cw-storage-plus = "1.0.1"
+cw2 = "1.0.1"
+cw20 = "1.0.1"
+cw721 = "0.17.0"
+cw721-base = { version = "0.17.0", features = ["library"] }
+schemars = "0.8.8"
+serde = { version = "1.0.137", default-features = false, features = ["derive"] }
+thiserror = { version = "1.0.31" }
+nois = "0.7.0"
+
 [profile.release]
 codegen-units = 1
 debug = false
