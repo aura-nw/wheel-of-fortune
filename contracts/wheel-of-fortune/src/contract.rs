@@ -790,8 +790,10 @@ fn select_wheel_rewards(
     for idx in 0..wheel_rewards.len() {
 
         let reward_supply =  wheel_rewards[idx].get_supply();
-        
-        list_weighted.push((idx, reward_supply));
+
+        if reward_supply >= 1 {
+            list_weighted.push((idx, reward_supply));
+        }
     }
 
     // define random provider from the random_seed
@@ -807,7 +809,12 @@ fn select_wheel_rewards(
         let slot_idx: usize = select_from_weighted(randomness, &list_weighted).unwrap();
 
         // update weighted
-        list_weighted[slot_idx].1 -= 1;
+        let wl_idx = list_weighted.iter().position(|&a| a.0 == slot_idx).unwrap();
+        if list_weighted[wl_idx].1 > 1 {
+            list_weighted[wl_idx].1 -= 1;
+        } else{
+            list_weighted.remove(wl_idx);
+        }
 
         // save spins result and update wheel rewards
         match wheel_rewards[slot_idx].clone() {
