@@ -13,7 +13,7 @@ mod unit_tests {
     };
     use cosmwasm_std::{
         Uint128, OwnedDeps, Env, Response,BlockInfo, ContractInfo, Timestamp, 
-        Addr, Coin, coins, to_binary, WasmMsg, CosmosMsg
+        Addr, Coin, coins, to_json_binary, WasmMsg, CosmosMsg
     };
     use cw20::Cw20ExecuteMsg;
     use cw721_base::{ExecuteMsg as CW721ExecuteMsg, Extension as CW721Extension};
@@ -377,7 +377,7 @@ mod unit_tests {
 
         let transfer_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: test_address.to_string(),
-            msg: to_binary(&Cw20ExecuteMsg::TransferFrom { 
+            msg: to_json_binary(&Cw20ExecuteMsg::TransferFrom { 
                 owner: CREATOR.to_string(), 
                 recipient: mock_env().contract.address.to_string(), 
                 amount: amount.checked_mul(Uint128::from(number as u128)).unwrap() 
@@ -437,7 +437,7 @@ mod unit_tests {
 
         let transfer_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: test_address.to_string(),
-            msg: to_binary(&CW721ExecuteMsg::<CW721Extension,CW721Extension>::TransferNft {
+            msg: to_json_binary(&CW721ExecuteMsg::<CW721Extension,CW721Extension>::TransferNft {
                 recipient: mock_env().contract.address.to_string(), 
                 token_id: nft_id.to_string()
             }).unwrap(),
