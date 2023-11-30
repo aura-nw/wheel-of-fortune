@@ -2,7 +2,7 @@
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     Binary, Deps, DepsMut, Env, MessageInfo, Response, ensure_eq, BankMsg, Api, BalanceResponse, BankQuery, has_coins,
-    StdResult, Storage, Addr, Timestamp, WasmMsg, to_binary, CosmosMsg, Uint128, Coin, Order, QueryRequest
+    StdResult, Storage, Addr, Timestamp, WasmMsg, to_json_binary, CosmosMsg, Uint128, Coin, Order, QueryRequest
 };
 use cw2::set_contract_version;
 
@@ -279,17 +279,14 @@ pub fn add_reward(
             add_collection_reward(wheel_rewards.as_mut(), msgs.as_mut(), env.contract.address.to_string(), collection)?;
         }
         WheelReward::FungibleToken(token) => {
-            // validate token contract address
             addr_validate(deps.api, &token.token_address)?;
 
-            // increase wheel's total reward supply
             supply = checked_add_supply(supply, token.number)?;
 
             // add token to wheel rewards list
             add_token_reward(wheel_rewards.as_mut(), msgs.as_mut(), info.sender.to_string(), env.contract.address.to_string(), token)?;
         }
         WheelReward::Coin(coin) => {
-            // increase wheel's total reward supply
             supply = checked_add_supply(supply, coin.number)?;
 
             // add coint to wheel rewards list
@@ -304,7 +301,6 @@ pub fn add_reward(
             }
         }
         WheelReward::Text(text) => {
-            // increase wheel's total reward supply
             supply = checked_add_supply(supply, text.number)?;
 
             // add text to wheel rewards list
@@ -480,7 +476,7 @@ pub fn spin(
         // Make randomness request message to NOIS proxy contract
         let msg = CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: config.nois_proxy.into(),
-            msg: to_binary(&ProxyExecuteMsg::GetNextRandomness { 
+            msg: to_json_binary(&ProxyExecuteMsg::GetNextRandomness { 
                             job_id: job_id.clone() })?,
             funds,
         });
@@ -817,8 +813,8 @@ fn select_wheel_rewards(
         }
 
         // save spins result and update wheel rewards
-        match wheel_rewards[slot_idx].clone() {
-            WheelReward::NftCollection(mut collection) => {
+        match wheel_rewards[slot_idx] {
+            WheelReward::NftCollection(ref mut collection) => {
                 // get random nft in collection
                 let id_idx = int_in_range(randomness, 0, collection.token_ids.len() - 1);
                 
@@ -830,13 +826,10 @@ fn select_wheel_rewards(
                     id: collection.id.clone()
                 });
 
-                // update rewards of slot
-                wheel_rewards[slot_idx] = WheelReward::NftCollection(collection);
-
                 spins_result.push((false, reward));
             }
 
-            WheelReward::FungibleToken(mut token) => {
+            WheelReward::FungibleToken(ref mut token) => {
                 // spin result with token as reward
                 let reward = WheelReward::FungibleToken(TokenReward { 
                     label: token.label.clone(), 
@@ -847,13 +840,11 @@ fn select_wheel_rewards(
                 });
 
                 token.number -= 1;
-                
-                wheel_rewards[slot_idx] = WheelReward::FungibleToken(token);
 
                 spins_result.push((false, reward));
             }
 
-            WheelReward::Coin(mut coin) => {
+            WheelReward::Coin(ref mut coin) => {
                  // spin result with coin as reward
                 let reward = WheelReward::Coin(CoinReward { 
                     label: coin.label.clone(), 
@@ -864,12 +855,10 @@ fn select_wheel_rewards(
 
                 coin.number -= 1;
 
-                wheel_rewards[slot_idx] = WheelReward::Coin(coin);
-
                 spins_result.push((false, reward));
             }
 
-            WheelReward::Text(mut text) => {
+            WheelReward::Text(ref mut text) => {
                  // spin result with text as reward
                 let reward = WheelReward::Text(TextReward { 
                     label: text.label.clone(), 
@@ -878,8 +867,6 @@ fn select_wheel_rewards(
                 });
 
                 text.number -= 1;
-                
-                wheel_rewards[slot_idx] = WheelReward::Text(text);
 
                 spins_result.push((false, reward));
             }
@@ -964,7 +951,7 @@ fn transfer_nft_msgs(
     for token_id in token_ids {
         let transfer_msg = CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: contract_addr.clone(), // nft contract
-            msg: to_binary(&Cw721ExecuteMsg::TransferNft {
+            msg: to_json_binary(&Cw721ExecuteMsg::TransferNft {
                 recipient: recipient.clone(), 
                 token_id
             })?,
@@ -986,7 +973,7 @@ fn transfer_token_msg(
 
     let transfer_msg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr, // fungible token contract 
-        msg: to_binary(&Cw20ExecuteMsg::Transfer { 
+        msg: to_json_binary(&Cw20ExecuteMsg::Transfer { 
             recipient, 
             amount
         })?,
@@ -1009,7 +996,7 @@ fn transfer_from_token_msg(
 
     let transfer_from_msg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr, // fungible token contract 
-        msg: to_binary(&Cw20ExecuteMsg::TransferFrom { 
+        msg: to_json_binary(&Cw20ExecuteMsg::TransferFrom { 
             owner,
             recipient, 
             amount
@@ -1044,12 +1031,12 @@ fn send_coin_msg(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
-        QueryMsg::GetWheelRewards{} => to_binary(&get_wheel_rewards(deps)?),
-        QueryMsg::GetPlayerRewards{address} => to_binary(&get_player_rewards(deps, address)?),
-        QueryMsg::GetPlayerSpinned{address} => to_binary(&get_player_spinned(deps, address)?),
-        QueryMsg::GetWheelConfig {} => to_binary(&get_wheel_config(deps)?),
-        QueryMsg::Spinnable {address} => to_binary(&spinnable(deps, env, address)?),
-        QueryMsg::GetWhiteList{} => to_binary(&get_white_list(deps)?)
+        QueryMsg::GetWheelRewards{} => to_json_binary(&get_wheel_rewards(deps)?),
+        QueryMsg::GetPlayerRewards{address} => to_json_binary(&get_player_rewards(deps, address)?),
+        QueryMsg::GetPlayerSpinned{address} => to_json_binary(&get_player_spinned(deps, address)?),
+        QueryMsg::GetWheelConfig {} => to_json_binary(&get_wheel_config(deps)?),
+        QueryMsg::Spinnable {address} => to_json_binary(&spinnable(deps, env, address)?),
+        QueryMsg::GetWhiteList{} => to_json_binary(&get_white_list(deps)?)
     }
 }
 
