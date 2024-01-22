@@ -1081,7 +1081,9 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         }
         QueryMsg::GetWheelConfig {} => to_json_binary(&get_wheel_config(deps)?),
         QueryMsg::Spinnable { address } => to_json_binary(&spinnable(deps, env, address)?),
-        QueryMsg::GetWhiteList {} => to_json_binary(&get_white_list(deps)?),
+        QueryMsg::GetWhiteList { start_after, limit } => {
+            to_json_binary(&get_white_list(deps, start_after, limit)?)
+        }
     }
 }
 
@@ -1123,13 +1125,21 @@ fn get_wheel_config(deps: Deps) -> StdResult<Config> {
     CONFIG.load(deps.storage)
 }
 
-fn get_white_list(deps: Deps) -> StdResult<WhiteListResponse> {
-    let address: Result<Vec<_>, _> = WHITELIST
-        .keys(deps.storage, None, None, Order::Ascending)
-        .collect();
-    let address = address?;
-    let resp = WhiteListResponse { addresses: address };
-    Ok(resp)
+fn get_white_list(
+    deps: Deps,
+    start_after: Option<String>,
+    limit: Option<u32>,
+) -> StdResult<WhiteListResponse> {
+    let limit = limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT) as usize;
+    let start = start_after.map(|s| Bound::ExclusiveRaw(s.into_bytes()));
+
+    let addresses = WHITELIST
+        .keys(deps.storage, start, None, Order::Ascending)
+        .take(limit)
+        .map(|item| item.map(Into::into))
+        .collect::<StdResult<_>>()?;
+
+    Ok(WhiteListResponse { addresses })
 }
 
 fn spinnable(deps: Deps, env: Env, address: String) -> StdResult<Option<u32>> {

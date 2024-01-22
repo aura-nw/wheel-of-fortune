@@ -96,7 +96,10 @@ pub enum QueryMsg {
     Spinnable { address: String },
 
     #[returns(Option<Vec<WhiteListResponse>>)]
-    GetWhiteList {},
+    GetWhiteList {
+        start_after: Option<String>,
+        limit: Option<u32>,
+    },
 }
 
 #[cw_serde]
