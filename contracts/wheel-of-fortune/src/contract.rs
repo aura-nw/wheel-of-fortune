@@ -6,12 +6,13 @@ use cosmwasm_std::{
     Storage, Timestamp, Uint128, WasmMsg,
 };
 use cw2::set_contract_version;
-
 use cw721::Cw721ExecuteMsg;
+use cw_storage_plus::Bound;
 
 use cw20::Cw20ExecuteMsg;
 
 use crate::error::ContractError;
+use crate::msg::{AllEarnedPrizeResponse, EarnedPrizes};
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, WhiteListResponse};
 use crate::state::{
     AdminConfig, CoinReward, CollectionReward, Config, RandomJob, TextReward, TokenReward,
@@ -32,6 +33,10 @@ const MAX_TEXT_LENGTH: usize = 253;
 const MAX_VEC_ITEM: usize = 65536;
 const MAX_SPINS_PER_TURN: u32 = 10;
 const DEFAULT_ACTIVATE: bool = false;
+
+// settings for query pagination
+const MAX_LIMIT: u32 = 30;
+const DEFAULT_LIMIT: u32 = 10;
 
 /// Handling contract instantiation
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -1068,6 +1073,9 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::GetPlayerRewards { address } => {
             to_json_binary(&get_player_rewards(deps, address)?)
         }
+        QueryMsg::AllEarnedPrize { start_after, limit } => {
+            to_json_binary(&all_earned_prize(deps, start_after, limit)?)
+        }
         QueryMsg::GetPlayerSpinned { address } => {
             to_json_binary(&get_player_spinned(deps, address)?)
         }
@@ -1083,6 +1091,28 @@ fn get_wheel_rewards(deps: Deps) -> StdResult<(u32, Vec<WheelReward>)> {
 
 fn get_player_rewards(deps: Deps, address: String) -> StdResult<Option<Vec<(bool, WheelReward)>>> {
     SPINS_RESULT.may_load(deps.storage, Addr::unchecked(address))
+}
+
+fn all_earned_prize(
+    deps: Deps,
+    start_after: Option<String>,
+    limit: Option<u32>,
+) -> StdResult<AllEarnedPrizeResponse> {
+    let limit = limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT) as usize;
+    let start = start_after.map(|s| Bound::ExclusiveRaw(s.into_bytes()));
+
+    let all_earned_prizes = SPINS_RESULT
+        .range(deps.storage, start, None, Order::Ascending)
+        .take(limit)
+        .map(|item| {
+            item.map(|(address, rewards)| EarnedPrizes {
+                address: address.to_string(),
+                rewards,
+            })
+        })
+        .collect::<StdResult<_>>()?;
+
+    Ok(AllEarnedPrizeResponse { all_earned_prizes })
 }
 
 fn get_player_spinned(deps: Deps, address: String) -> StdResult<Option<u32>> {

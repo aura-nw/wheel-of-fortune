@@ -80,6 +80,12 @@ pub enum QueryMsg {
     #[returns(Option<Vec<(bool, WheelReward)>>)]
     GetPlayerRewards { address: String },
 
+    #[returns(AllEarnedPrizeResponse)]
+    AllEarnedPrize {
+        start_after: Option<String>,
+        limit: Option<u32>,
+    },
+
     #[returns(Option<u32>)]
     GetPlayerSpinned { address: String },
 
@@ -97,6 +103,18 @@ pub enum QueryMsg {
 pub struct WhiteListResponse {
     pub addresses: Vec<Addr>,
 }
+
+#[cw_serde]
+pub struct EarnedPrizes {
+    pub address: String,
+    pub rewards: Vec<(bool, WheelReward)>,
+}
+
+#[cw_serde]
+pub struct AllEarnedPrizeResponse {
+    pub all_earned_prizes: Vec<EarnedPrizes>,
+}
+
 // We define a custom struct for each query response
 // #[cw_serde]
 // pub struct YourQueryResponse {}
