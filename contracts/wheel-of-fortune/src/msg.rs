@@ -115,7 +115,7 @@ pub struct EarnedPrizes {
 
 #[cw_serde]
 pub struct AllEarnedPrizeResponse {
-    pub all_earned_prizes: Vec<EarnedPrizes>,
+    pub all_earned_prize: Vec<EarnedPrizes>,
 }
 
 // We define a custom struct for each query response

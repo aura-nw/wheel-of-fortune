@@ -1103,7 +1103,7 @@ fn all_earned_prize(
     let limit = limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT) as usize;
     let start = start_after.map(|s| Bound::ExclusiveRaw(s.into_bytes()));
 
-    let all_earned_prizes = SPINS_RESULT
+    let all_earned_prize = SPINS_RESULT
         .range(deps.storage, start, None, Order::Ascending)
         .take(limit)
         .map(|item| {
@@ -1114,7 +1114,7 @@ fn all_earned_prize(
         })
         .collect::<StdResult<_>>()?;
 
-    Ok(AllEarnedPrizeResponse { all_earned_prizes })
+    Ok(AllEarnedPrizeResponse { all_earned_prize })
 }
 
 fn get_player_spinned(deps: Deps, address: String) -> StdResult<Option<u32>> {
