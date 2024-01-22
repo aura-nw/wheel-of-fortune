@@ -1,5 +1,5 @@
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::{Coin, Addr, Timestamp, Uint128};
+use cosmwasm_std::{Addr, Coin, Timestamp, Uint128};
 use cw_storage_plus::{Item, Map};
 
 #[cw_serde]
@@ -11,7 +11,7 @@ pub struct Config {
     pub start_time: Option<Timestamp>,
     pub end_time: Option<Timestamp>,
     pub nois_proxy: Addr,
-    pub price: Coin
+    pub price: Coin,
 }
 pub const CONFIG: Item<Config> = Item::new("config");
 
@@ -27,7 +27,7 @@ pub struct CollectionReward {
     pub label: String,
     pub collection_address: String,
     pub token_ids: Vec<String>,
-    pub id: u32
+    pub id: u32,
 }
 
 #[cw_serde]
@@ -35,15 +35,14 @@ pub struct CoinReward {
     pub label: String,
     pub coin: Coin,
     pub number: u32,
-    pub id: u32
+    pub id: u32,
 }
-
 
 #[cw_serde]
 pub struct TextReward {
     pub label: String,
     pub number: u32,
-    pub id: u32
+    pub id: u32,
 }
 
 #[cw_serde]
@@ -52,7 +51,7 @@ pub struct TokenReward {
     pub token_address: String,
     pub amount: Uint128,
     pub number: u32,
-    pub id: u32
+    pub id: u32,
 }
 
 #[cw_serde]
@@ -60,9 +59,8 @@ pub enum WheelReward {
     NftCollection(CollectionReward),
     FungibleToken(TokenReward),
     Coin(CoinReward),
-    Text(TextReward)
+    Text(TextReward),
 }
-
 
 impl WheelReward {
     pub fn get_supply(&self) -> u32 {

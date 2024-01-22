@@ -11,7 +11,7 @@ pub enum ContractError {
 
     #[error("Invalid address")]
     InvalidAddress {},
-    
+
     #[error("Insufficent reward")]
     InsufficentReward {},
 
@@ -35,7 +35,7 @@ pub enum ContractError {
 
     #[error("Invalid time setting")]
     InvalidTimeSetting {},
-    
+
     #[error("Invalid randomness")]
     InvalidRandomness {},
 
